@@ -51,7 +51,7 @@ jobs:
       - name: Checkout de la logique devops (scripts)
         uses: actions/checkout@v4
         with:
-          repository: danylog243/devops
+          repository: danylog-sas/devops
           ref: ${{ inputs.devops-ref }}
           path: _devops
 

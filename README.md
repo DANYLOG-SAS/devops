@@ -73,8 +73,8 @@ Les `templates/` sont déjà calés sur l'infra danschool (Caddy, `postgres:15`,
 
 1. déposer les callers + `docker-compose.prod.yml`/`.staging.yml` (images GHCR)
    dans le repo danschool ;
-2. compléter `.env` avec `REGISTRY=ghcr.io`, `IMAGE_API=danylog243/danschool-api`,
-   `IMAGE_WEB=danylog243/danschool-web` ;
+2. compléter `.env` avec `REGISTRY=ghcr.io`, `IMAGE_API=danylog-sas/danschool-api`,
+   `IMAGE_WEB=danylog-sas/danschool-web` ;
 3. vérifier que `backend/Dockerfile` copie `migrations/` (le CI le re-teste) ;
 4. valider en **staging**, puis tag `v*` pour la **prod**.
 
@@ -91,7 +91,7 @@ Ce repo est tagué (`v1`, `v2`, …) ; les projets épinglent une version stable
 - Changement **cassant** → nouveau tag majeur `v2` ; les projets migrent quand
   ils veulent (ils restent sur `@v1` en attendant).
 
-> `bootstrap.sh` accepte `DEVOPS_OWNER` et `DEVOPS_REF` (défaut `danylog243`/`v1`)
+> `bootstrap.sh` accepte `DEVOPS_OWNER` et `DEVOPS_REF` (défaut `danylog-sas`/`v1`)
 > pour cibler un autre propriétaire ou une autre version.
 
 ## Documentation

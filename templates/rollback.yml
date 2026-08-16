@@ -20,7 +20,7 @@ on:
 
 jobs:
   rollback:
-    uses: danylog243/devops/.github/workflows/reusable-rollback.yml@v1
+    uses: danylog-sas/devops/.github/workflows/reusable-rollback.yml@v1
     with:
       environment: ${{ inputs.environment }}
       image-tag: ${{ inputs.image-tag }}

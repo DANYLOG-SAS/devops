@@ -11,14 +11,14 @@
 # (utiliser --force pour écraser).
 #
 # Variables d'env :
-#   DEVOPS_OWNER   propriétaire GitHub du repo devops + des images (défaut danylog243)
+#   DEVOPS_OWNER   propriétaire GitHub du repo devops + des images (défaut danylog-sas)
 #   DEVOPS_REF     version épinglée de la chaîne (défaut v1)
 #   FORCE=1        écrase les fichiers existants
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEMPLATES="${SCRIPT_DIR}/templates"
-OWNER="${DEVOPS_OWNER:-danylog243}"
+OWNER="${DEVOPS_OWNER:-danylog-sas}"
 REF="${DEVOPS_REF:-v1}"
 FORCE="${FORCE:-0}"
 
@@ -60,7 +60,7 @@ copy_tpl() {
     echo "  = conservé (existe déjà)  $dest"; return 0
   fi
   mkdir -p "$(dirname "$dest")"
-  sed -e "s/danschool/${NAME}/g" -e "s/danylog243/${OWNER}/g" "${TEMPLATES}/${src}" > "$dest"
+  sed -e "s/danschool/${NAME}/g" -e "s/danylog-sas/${OWNER}/g" "${TEMPLATES}/${src}" > "$dest"
   echo "  + écrit                   $dest"
 }
 

@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   build:
-    uses: danylog243/devops/.github/workflows/reusable-ci.yml@v1
+    uses: danylog-sas/devops/.github/workflows/reusable-ci.yml@v1
     with:
       push-images: true
       image-tag: ${{ github.sha }}
@@ -25,7 +25,7 @@ jobs:
 
   deploy:
     needs: build
-    uses: danylog243/devops/.github/workflows/reusable-deploy.yml@v1
+    uses: danylog-sas/devops/.github/workflows/reusable-deploy.yml@v1
     with:
       environment: staging
       image-tag: ${{ github.sha }}

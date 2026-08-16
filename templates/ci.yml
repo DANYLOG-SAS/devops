@@ -11,7 +11,7 @@ on:
 
 jobs:
   ci:
-    uses: danylog243/devops/.github/workflows/reusable-ci.yml@v1
+    uses: danylog-sas/devops/.github/workflows/reusable-ci.yml@v1
     with:
       # Secrets FACTICES juste pour permettre le boot de l'API en CI.
       # (jamais de vrais secrets ici — la CI n'en a pas besoin)

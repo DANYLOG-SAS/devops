@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   build:
-    uses: danylog243/devops/.github/workflows/reusable-ci.yml@v1
+    uses: danylog-sas/devops/.github/workflows/reusable-ci.yml@v1
     with:
       push-images: true
       image-tag: ${{ github.ref_name }}   # ex. v1.2.3
@@ -29,7 +29,7 @@ jobs:
 
   deploy-staging:
     needs: build
-    uses: danylog243/devops/.github/workflows/reusable-deploy.yml@v1
+    uses: danylog-sas/devops/.github/workflows/reusable-deploy.yml@v1
     with:
       environment: staging
       image-tag: ${{ github.ref_name }}
@@ -39,7 +39,7 @@ jobs:
 
   deploy-production:
     needs: deploy-staging          # la prod n'est atteinte que si le staging a réussi
-    uses: danylog243/devops/.github/workflows/reusable-deploy.yml@v1
+    uses: danylog-sas/devops/.github/workflows/reusable-deploy.yml@v1
     with:
       environment: production
       image-tag: ${{ github.ref_name }}

@@ -2,7 +2,7 @@ name: setup-app
 description: >-
   Configure Node.js avec cache npm et installe les dépendances (npm ci).
   Composite réutilisable — à appeler après actions/checkout.
-  Usage: uses: danylog243/devops/actions/setup-app@v1
+  Usage: uses: danylog-sas/devops/actions/setup-app@v1
 
 inputs:
   node-version:
