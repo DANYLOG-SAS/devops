@@ -1,0 +1,15 @@
+# Secrets / config locale — ne JAMAIS committer
+.env
+.env.*
+!.env.example
+
+# État de déploiement (généré sur le VPS)
+.current_tag
+.previous_tag
+backups/
+payload/
+
+# Divers
+*.log
+.DS_Store
+node_modules/

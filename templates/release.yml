@@ -1,0 +1,48 @@
+# RELEASE — déploiement de production déclenché par un tag de version (vX.Y.Z).
+# À copier dans le projet : .github/workflows/release.yml
+#
+# Flux : tag v* -> build+test+push images GHCR -> deploy STAGING -> deploy PROD.
+# Rollback = relancer ce workflow sur le tag précédent (ou le workflow Rollback).
+#
+# Adapter par projet : deploy-path (répertoires sur le VPS).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+# Autorise le GITHUB_TOKEN à pousser les images sur GHCR.
+# (nécessite aussi Settings → Actions → Workflow permissions = Read and write)
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    uses: danylog243/devops/.github/workflows/reusable-ci.yml@v1
+    with:
+      push-images: true
+      image-tag: ${{ github.ref_name }}   # ex. v1.2.3
+      app-env: |
+        JWT_SECRET=ci-not-a-real-secret
+        REFRESH_SECRET=ci-not-a-real-secret
+
+  deploy-staging:
+    needs: build
+    uses: danylog243/devops/.github/workflows/reusable-deploy.yml@v1
+    with:
+      environment: staging
+      image-tag: ${{ github.ref_name }}
+      compose-file: docker-compose.staging.yml
+      deploy-path: /opt/danschool-staging
+    secrets: inherit
+
+  deploy-production:
+    needs: deploy-staging          # la prod n'est atteinte que si le staging a réussi
+    uses: danylog243/devops/.github/workflows/reusable-deploy.yml@v1
+    with:
+      environment: production
+      image-tag: ${{ github.ref_name }}
+      compose-file: docker-compose.prod.yml
+      deploy-path: /opt/danschool
+    secrets: inherit

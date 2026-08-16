@@ -1,0 +1,29 @@
+# ROLLBACK — rollback manuel (workflow_dispatch), en un clic depuis l'onglet Actions.
+# À copier dans le projet : .github/workflows/rollback.yml
+#
+# Laisser "image-tag" vide -> repasse au tag n-1 (le déploiement précédent).
+# Renseigner un tag précis (ex. v1.2.2) -> redéploie exactement ce tag.
+name: Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environnement à faire revenir en arrière
+        type: choice
+        options: [production, staging]
+        default: production
+      image-tag:
+        description: Tag à redéployer (vide = tag n-1)
+        type: string
+        default: ""
+
+jobs:
+  rollback:
+    uses: danylog243/devops/.github/workflows/reusable-rollback.yml@v1
+    with:
+      environment: ${{ inputs.environment }}
+      image-tag: ${{ inputs.image-tag }}
+      compose-file: ${{ inputs.environment == 'production' && 'docker-compose.prod.yml' || 'docker-compose.staging.yml' }}
+      deploy-path: ${{ inputs.environment == 'production' && '/opt/danschool' || '/opt/danschool-staging' }}
+    secrets: inherit

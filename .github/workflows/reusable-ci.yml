@@ -1,0 +1,338 @@
+# reusable-ci.yml — chaîne d'intégration réutilisable (workflow_call).
+#
+# Ce que ce workflow GARANTIT avant qu'une image n'atteigne un serveur :
+#   1. lint
+#   2. LES MIGRATIONS PASSENT DEPUIS ZÉRO sur une base Postgres jetable
+#      (c'est exactement la régression qui a cassé la prod danschool :
+#       migrations non embarquées / incompatibles)
+#   3. l'API démarre et répond sur son endpoint /health
+#   4. le frontend se build
+#   5. (si push-images) build + smoke-test de l'IMAGE réelle (re-migration
+#      dans le conteneur = attrape « dossier migrations/ absent de l'image »),
+#      puis push sur GHCR taggé version + sha + latest.
+#
+# Tout est paramétré ; les valeurs par défaut correspondent à danschool.
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        type: string
+        default: "20"
+      backend-path:
+        type: string
+        default: backend
+      frontend-path:
+        type: string
+        default: frontend
+      run-lint:
+        type: boolean
+        default: true
+      lint-command:
+        type: string
+        default: npm run lint
+      run-backend:
+        description: Lancer le job backend (lint + migrations + boot/health)
+        type: boolean
+        default: true
+      run-migrations:
+        type: boolean
+        default: true
+      migrate-command:
+        type: string
+        default: npm run migrate
+      start-command:
+        type: string
+        default: npm start
+      health-path:
+        type: string
+        default: /api/v1/health
+      health-port:
+        type: number
+        default: 3000
+      build-frontend:
+        type: boolean
+        default: true
+      frontend-build-command:
+        type: string
+        default: npm run build
+      postgres-image:
+        type: string
+        default: postgres:15-alpine
+      app-env:
+        description: >-
+          Variables applicatives supplémentaires pour la CI (multi-lignes KEY=VALUE) —
+          secrets factices de test : JWT_SECRET, REFRESH_SECRET, etc.
+        type: string
+        default: ""
+      push-images:
+        type: boolean
+        default: false
+      push-api:
+        description: Construire/pousser l'image API (désactiver pour un profil "static")
+        type: boolean
+        default: true
+      push-web:
+        description: Construire/pousser l'image WEB (désactiver pour un profil "service")
+        type: boolean
+        default: true
+      image-tag:
+        description: Tag de version des images (ex. v1.2.3). Vide = seulement sha + latest.
+        type: string
+        default: ""
+      registry:
+        type: string
+        default: ghcr.io
+      api-context:
+        type: string
+        default: backend
+      api-dockerfile:
+        type: string
+        default: backend/Dockerfile
+      web-context:
+        type: string
+        default: frontend
+      web-dockerfile:
+        type: string
+        default: frontend/Dockerfile
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Backend : lint + migrations sur base jetable + boot/health
+  # ---------------------------------------------------------------------------
+  backend:
+    if: ${{ inputs.run-backend }}
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: ${{ inputs.postgres-image }}
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node ${{ inputs.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.backend-path }}/package-lock.json
+
+      - name: Installer les dépendances (npm ci)
+        working-directory: ${{ inputs.backend-path }}
+        run: npm ci
+
+      - name: Préparer l'environnement de CI
+        env:
+          APP_ENV: ${{ inputs.app-env }}
+        run: |
+          {
+            echo "DB_HOST=localhost"
+            echo "DB_PORT=5432"
+            echo "DB_NAME=ci_test"
+            echo "DB_USER=ci"
+            echo "DB_PASSWORD=ci"
+            echo "DB_SYNC=false"
+            echo "REDIS_URL=redis://localhost:6379"
+            echo "NODE_ENV=production"
+            echo "PORT=${{ inputs.health-port }}"
+            printf '%s\n' "$APP_ENV"
+          } >> "$GITHUB_ENV"
+
+      - name: Lint
+        if: ${{ inputs.run-lint }}
+        working-directory: ${{ inputs.backend-path }}
+        run: ${{ inputs.lint-command }}
+
+      - name: Valider les migrations sur une base VIERGE
+        if: ${{ inputs.run-migrations }}
+        working-directory: ${{ inputs.backend-path }}
+        run: ${{ inputs.migrate-command }}
+
+      - name: Démarrer l'API et vérifier /health
+        working-directory: ${{ inputs.backend-path }}
+        run: |
+          ${{ inputs.start-command }} &
+          APP_PID=$!
+          echo "API démarrée (PID=$APP_PID)"
+          url="http://localhost:${{ inputs.health-port }}${{ inputs.health-path }}"
+          for i in $(seq 1 30); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$url" || echo 000)"
+            case "$code" in
+              200|400|401) echo "API up — HTTP $code"; kill "$APP_PID" 2>/dev/null || true; exit 0 ;;
+            esac
+            echo "attente API... (HTTP $code) [$i/30]"; sleep 3
+          done
+          echo "::error::L'API n'a pas démarré ou /health ne répond pas" >&2
+          kill "$APP_PID" 2>/dev/null || true
+          exit 1
+
+      # --- Hooks pour tests plus riches (à activer quand prêts) ---------------
+      # - name: Tests e2e
+      #   working-directory: ${{ inputs.backend-path }}
+      #   run: npm run test:e2e
+      # - name: Tests deep
+      #   working-directory: ${{ inputs.backend-path }}
+      #   run: npm run test:deep
+
+  # ---------------------------------------------------------------------------
+  # 2. Frontend : build
+  # ---------------------------------------------------------------------------
+  frontend:
+    if: ${{ inputs.build-frontend }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node ${{ inputs.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.frontend-path }}/package-lock.json
+      - name: Installer les dépendances (npm ci)
+        working-directory: ${{ inputs.frontend-path }}
+        run: npm ci
+      - name: Build frontend
+        working-directory: ${{ inputs.frontend-path }}
+        run: ${{ inputs.frontend-build-command }}
+
+  # ---------------------------------------------------------------------------
+  # 3. Images : build + smoke-test de l'image réelle + push GHCR
+  # ---------------------------------------------------------------------------
+  images:
+    needs: [backend, frontend]
+    # Ne construit/pousse que si demandé, et seulement si les jobs amont n'ont pas
+    # échoué (un job volontairement désactivé = skipped, ce qui n'est pas un échec).
+    if: ${{ inputs.push-images && !cancelled() && !failure() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    services:
+      postgres:
+        image: ${{ inputs.postgres-image }}
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Se connecter à GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Métadonnées image API
+        id: meta_api
+        if: ${{ inputs.push-api }}
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.registry }}/${{ github.repository }}-api
+          tags: |
+            type=raw,value=${{ inputs.image-tag }},enable=${{ inputs.image-tag != '' }}
+            type=sha
+            type=raw,value=latest
+
+      - name: Métadonnées image WEB
+        id: meta_web
+        if: ${{ inputs.push-web }}
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.registry }}/${{ github.repository }}-web
+          tags: |
+            type=raw,value=${{ inputs.image-tag }},enable=${{ inputs.image-tag != '' }}
+            type=sha
+            type=raw,value=latest
+
+      - name: Build image API (chargée localement pour test)
+        if: ${{ inputs.push-api }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.api-context }}
+          file: ${{ inputs.api-dockerfile }}
+          load: true
+          tags: ci-local/api:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: SMOKE TEST — migrations embarquées + boot dans l'image réelle
+        if: ${{ inputs.push-api }}
+        env:
+          APP_ENV: ${{ inputs.app-env }}
+        run: |
+          {
+            echo "DB_HOST=localhost"
+            echo "DB_PORT=5432"
+            echo "DB_NAME=ci_test"
+            echo "DB_USER=ci"
+            echo "DB_PASSWORD=ci"
+            echo "DB_SYNC=false"
+            echo "REDIS_URL=redis://localhost:6379"
+            echo "NODE_ENV=production"
+            echo "PORT=${{ inputs.health-port }}"
+            printf '%s\n' "$APP_ENV"
+          } > ci-app.env
+          docker run -d --name api_smoke --network host --env-file ci-app.env ci-local/api:test
+          url="http://localhost:${{ inputs.health-port }}${{ inputs.health-path }}"
+          ok=0
+          for i in $(seq 1 30); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$url" || echo 000)"
+            case "$code" in 200|400|401) ok=1; break ;; esac
+            echo "attente image API... (HTTP $code) [$i/30]"; sleep 3
+          done
+          echo "----- logs conteneur -----"; docker logs api_smoke || true
+          docker rm -f api_smoke >/dev/null 2>&1 || true
+          if [ "$ok" != 1 ]; then
+            echo "::error::L'image API ne démarre pas (migrations non embarquées ?)" >&2
+            exit 1
+          fi
+          echo "Image API OK — migrations embarquées et boot validés"
+
+      - name: Pousser l'image API sur GHCR (multi-tags)
+        if: ${{ inputs.push-api }}
+        run: |
+          echo "${{ steps.meta_api.outputs.tags }}" | while read -r t; do
+            [ -z "$t" ] && continue
+            docker tag ci-local/api:test "$t"
+            docker push "$t"
+            echo "poussé: $t"
+          done
+
+      - name: Build + push image WEB sur GHCR
+        if: ${{ inputs.push-web }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.web-context }}
+          file: ${{ inputs.web-dockerfile }}
+          push: true
+          tags: ${{ steps.meta_web.outputs.tags }}
+          labels: ${{ steps.meta_web.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

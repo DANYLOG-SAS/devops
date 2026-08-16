@@ -1,0 +1,65 @@
+# docker-compose.staging.yml — STAGING sur le MÊME VPS que la prod.
+#
+# Isolation vs prod :
+#   - répertoire de déploiement distinct (/opt/<projet>-staging) ET
+#     COMPOSE_PROJECT_NAME distinct (dans .env) -> conteneurs, réseau et volumes
+#     préfixés séparément : la base de staging est totalement séparée de la prod.
+#   - la prod occupe déjà 80/443 : le staging publie sur 8080/8443.
+#   - l'API est exposée en local (127.0.0.1:3001) pour un healthcheck direct
+#     et fiable (voir HEALTH_URL dans le .env de staging).
+#
+# NB : sur 8443, l'ACME on-demand de Caddy n'obtient pas de certificat public
+# (ports non standard). Pour un staging HTTPS « propre », placer un proxy
+# frontal partagé ou utiliser un hôte dédié — voir docs/deployment.md.
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+
+  api:
+    image: ${REGISTRY}/${IMAGE_API}:${IMAGE_TAG}
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3001:3000"   # exposition locale pour le healthcheck de déploiement
+    volumes:
+      - uploads:/app/uploads
+
+  web:
+    image: ${REGISTRY}/${IMAGE_WEB}:${IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  redisdata:
+  uploads:
+  caddy_data:
+  caddy_config:

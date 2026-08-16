@@ -1,0 +1,59 @@
+# docker-compose.prod.yml — PRODUCTION.
+# Images GHCR PRÉ-CONSTRUITES : plus AUCUN `build:`, le VPS ne fait que `pull`.
+#
+# Interpolation :
+#   ${REGISTRY} ${IMAGE_API} ${IMAGE_WEB}   -> définis dans .env
+#   ${IMAGE_TAG}                            -> EXPORTÉ par scripts/deploy.sh à la volée
+#                                              (le .env contient un placeholder de secours)
+#
+# Stack identique à l'existant danschool (4 services, réseau par défaut, volumes nommés).
+services:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redisdata:/data
+
+  api:
+    image: ${REGISTRY}/${IMAGE_API}:${IMAGE_TAG}
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - uploads:/app/uploads
+
+  web:
+    image: ${REGISTRY}/${IMAGE_WEB}:${IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  redisdata:
+  uploads:
+  caddy_data:
+  caddy_config:

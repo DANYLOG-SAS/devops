@@ -1,0 +1,7 @@
+# Ce repo est déployé sur des serveurs Linux : forcer les fins de ligne LF
+# pour que les scripts shell restent exécutables (un CRLF casse le shebang).
+* text=auto eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf

@@ -1,0 +1,34 @@
+# STAGING — déploie automatiquement chaque push sur main vers le staging.
+# À copier dans le projet : .github/workflows/staging.yml
+#
+# Permet de valider en continu sur staging avant de tagguer une release prod.
+# L'image est taguée avec le sha du commit (tag brut = sha complet).
+name: Staging
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    uses: danylog243/devops/.github/workflows/reusable-ci.yml@v1
+    with:
+      push-images: true
+      image-tag: ${{ github.sha }}
+      app-env: |
+        JWT_SECRET=ci-not-a-real-secret
+        REFRESH_SECRET=ci-not-a-real-secret
+
+  deploy:
+    needs: build
+    uses: danylog243/devops/.github/workflows/reusable-deploy.yml@v1
+    with:
+      environment: staging
+      image-tag: ${{ github.sha }}
+      compose-file: docker-compose.staging.yml
+      deploy-path: /opt/danschool-staging
+    secrets: inherit
