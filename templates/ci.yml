@@ -4,10 +4,10 @@
 # Toute la logique vit dans le repo devops ; ce fichier ne fait que l'appeler.
 name: CI
 
+# Sur push main, c'est staging.yml qui rejoue la CI (puis déploie) : on ne
+# déclenche donc ici que sur les Pull Requests, pour ne pas tout lancer 2 fois.
 on:
   pull_request:
-  push:
-    branches: [main]
 
 jobs:
   ci:

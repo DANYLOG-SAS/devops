@@ -249,27 +249,33 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Les noms d'images Docker doivent être en MINUSCULES ; `github.repository`
+      # conserve la casse de l'org (ex. DANYLOG-SAS/danschool) -> on la normalise.
+      - name: Normaliser le nom d'image
+        id: img
+        run: echo "repo=${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
       - name: Métadonnées image API
         id: meta_api
         if: ${{ inputs.push-api }}
         uses: docker/metadata-action@v5
         with:
-          images: ${{ inputs.registry }}/${{ github.repository }}-api
+          images: ${{ inputs.registry }}/${{ steps.img.outputs.repo }}-api
           tags: |
             type=raw,value=${{ inputs.image-tag }},enable=${{ inputs.image-tag != '' }}
             type=sha
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ inputs.image-tag != '' }}
 
       - name: Métadonnées image WEB
         id: meta_web
         if: ${{ inputs.push-web }}
         uses: docker/metadata-action@v5
         with:
-          images: ${{ inputs.registry }}/${{ github.repository }}-web
+          images: ${{ inputs.registry }}/${{ steps.img.outputs.repo }}-web
           tags: |
             type=raw,value=${{ inputs.image-tag }},enable=${{ inputs.image-tag != '' }}
             type=sha
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ inputs.image-tag != '' }}
 
       - name: Build image API (chargée localement pour test)
         if: ${{ inputs.push-api }}

@@ -78,12 +78,11 @@ echo "   owner=${OWNER} ref=${REF} deploy=${DEPLOY_PATH}"
 # ── ci.yml (toujours) ─────────────────────────────────────────────────────────
 {
   cat <<YAML
-# CI — checks sur PR et push main. Généré par devops/bootstrap.sh (profil ${PROFILE}).
+# CI — checks sur Pull Request. Généré par devops/bootstrap.sh (profil ${PROFILE}).
+# (sur push main, staging.yml rejoue la CI puis déploie : pas de double exécution)
 name: CI
 on:
   pull_request:
-  push:
-    branches: [main]
 jobs:
   ci:
     uses: ${OWNER}/devops/.github/workflows/reusable-ci.yml@${REF}
