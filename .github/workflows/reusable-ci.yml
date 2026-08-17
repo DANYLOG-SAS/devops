@@ -41,6 +41,18 @@ on:
       migrate-command:
         type: string
         default: npm run migrate
+      seed-command:
+        description: >-
+          Commande de seed jouée après les migrations (données exigées par les
+          tests, ex. compte super_admin). Vide = pas de seed.
+        type: string
+        default: ""
+      test-commands:
+        description: >-
+          Tests automatisés joués API DÉMARRÉE, une commande par ligne
+          (ex. "npm run test:e2e"). Un échec bloque le déploiement.
+        type: string
+        default: ""
       start-command:
         type: string
         default: npm start
@@ -169,31 +181,56 @@ jobs:
         working-directory: ${{ inputs.backend-path }}
         run: ${{ inputs.migrate-command }}
 
+      - name: Seed des données de test
+        if: ${{ inputs.seed-command != '' }}
+        working-directory: ${{ inputs.backend-path }}
+        run: ${{ inputs.seed-command }}
+
+      # L'API est lancée en arrière-plan et LAISSÉE EN VIE : les tests des étapes
+      # suivantes tapent dessus. Elle est arrêtée par l'étape finale (always()).
       - name: Démarrer l'API et vérifier /health
         working-directory: ${{ inputs.backend-path }}
         run: |
-          ${{ inputs.start-command }} &
-          APP_PID=$!
-          echo "API démarrée (PID=$APP_PID)"
+          nohup ${{ inputs.start-command }} > /tmp/api.log 2>&1 &
+          echo $! > /tmp/api.pid
+          echo "API démarrée (PID=$(cat /tmp/api.pid))"
           url="http://localhost:${{ inputs.health-port }}${{ inputs.health-path }}"
           for i in $(seq 1 30); do
             code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$url" || echo 000)"
             case "$code" in
-              200|400|401) echo "API up — HTTP $code"; kill "$APP_PID" 2>/dev/null || true; exit 0 ;;
+              200|400|401) echo "API up — HTTP $code"; exit 0 ;;
             esac
             echo "attente API... (HTTP $code) [$i/30]"; sleep 3
           done
           echo "::error::L'API n'a pas démarré ou /health ne répond pas" >&2
-          kill "$APP_PID" 2>/dev/null || true
           exit 1
 
-      # --- Hooks pour tests plus riches (à activer quand prêts) ---------------
-      # - name: Tests e2e
-      #   working-directory: ${{ inputs.backend-path }}
-      #   run: npm run test:e2e
-      # - name: Tests deep
-      #   working-directory: ${{ inputs.backend-path }}
-      #   run: npm run test:deep
+      - name: Tests automatisés
+        if: ${{ inputs.test-commands != '' }}
+        working-directory: ${{ inputs.backend-path }}
+        env:
+          TEST_COMMANDS: ${{ inputs.test-commands }}
+        run: |
+          mapfile -t CMDS <<< "$TEST_COMMANDS"
+          for cmd in "${CMDS[@]}"; do
+            [ -z "${cmd//[[:space:]]/}" ] && continue
+            echo "::group::$cmd"
+            if ! eval "$cmd"; then
+              echo "::endgroup::"
+              echo "::error::Tests en échec : $cmd" >&2
+              exit 1
+            fi
+            echo "::endgroup::"
+          done
+
+      # Les logs de l'API expliquent la plupart des échecs de boot ou de tests.
+      - name: Logs de l'API
+        if: ${{ always() }}
+        run: |
+          echo "── /tmp/api.log ──"
+          tail -n 200 /tmp/api.log 2>/dev/null || echo "(aucun log)"
+          [ -f /tmp/api.pid ] && kill "$(cat /tmp/api.pid)" 2>/dev/null || true
+          exit 0
 
   # ---------------------------------------------------------------------------
   # 2. Frontend : build

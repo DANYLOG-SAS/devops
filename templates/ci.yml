@@ -4,11 +4,20 @@
 # Toute la logique vit dans le repo devops ; ce fichier ne fait que l'appeler.
 name: CI
 
-# Sur push main, c'est staging.yml qui rejoue la CI (puis déploie) : on ne
-# déclenche donc ici que sur les Pull Requests, pour ne pas tout lancer 2 fois.
+# Se déclenche à CHAQUE modification : tout push sur une branche de travail et
+# toute Pull Request. `main` est exclu car staging.yml y rejoue déjà la CI avant
+# de déployer (évite de tout lancer deux fois).
 on:
+  push:
+    branches-ignore: [main]
   pull_request:
 
 jobs:
   ci:
     uses: danylog-sas/devops/.github/workflows/reusable-ci.yml@v1
+    with:
+      seed-command: npm run seed
+      test-commands: |
+        npm run test:e2e
+        npm run test:deep
+        npm run test:preprod

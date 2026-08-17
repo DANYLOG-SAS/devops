@@ -79,10 +79,18 @@ echo "   owner=${OWNER} ref=${REF} deploy=${DEPLOY_PATH}"
 # ── ci.yml (toujours) ─────────────────────────────────────────────────────────
 {
   cat <<YAML
-# CI — checks sur Pull Request. Généré par devops/bootstrap.sh (profil ${PROFILE}).
-# (sur push main, staging.yml rejoue la CI puis déploie : pas de double exécution)
+# CI — checks à chaque modification. Généré par devops/bootstrap.sh (profil ${PROFILE}).
+# Tout push sur une branche de travail + toute PR. `main` est exclu car
+# staging.yml y rejoue déjà la CI avant de déployer (pas de double exécution).
+#
+# Pour activer les tests automatisés, ajouter sous `with:` :
+#   seed-command: npm run seed
+#   test-commands: |
+#     npm run test:e2e
 name: CI
 on:
+  push:
+    branches-ignore: [main]
   pull_request:
 jobs:
   ci:

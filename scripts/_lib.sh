@@ -33,11 +33,14 @@ env_set() {
 #      SNI = vrai domaine, certificat ignoré (-k) -> teste web -> api sans DNS externe.
 #   3. Sinon (API exposée directement) : http://localhost:PORT<API_PREFIX>/health.
 compute_health() {
-  local domain api_prefix
+  local domain api_prefix health_url
+  # HEALTH_URL peut venir du shell OU du .env (cas du staging, qui écoute sur un
+  # port non standard) : lire les deux, sinon le réglage du .env est ignoré.
+  health_url="${HEALTH_URL:-$(env_get HEALTH_URL)}"
   domain="$(env_get DOMAIN)"
   api_prefix="$(env_get API_PREFIX)"; api_prefix="${api_prefix:-/api/v1}"
-  if [ -n "${HEALTH_URL:-}" ]; then
-    HEALTH_TARGET="${HEALTH_URL}"
+  if [ -n "${health_url}" ]; then
+    HEALTH_TARGET="${health_url}"
   elif [ -n "${domain}" ]; then
     HEALTH_TARGET="https://${domain}${api_prefix}/health"
     CURL_OPTS="${CURL_OPTS:- -k --resolve ${domain}:443:127.0.0.1}"
