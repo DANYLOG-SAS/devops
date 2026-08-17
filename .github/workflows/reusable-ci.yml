@@ -41,6 +41,14 @@ on:
       migrate-command:
         type: string
         default: npm run migrate
+      node-env:
+        description: >-
+          NODE_ENV du job de tests. "test" par défaut : en "production" une API
+          masque en général ses jetons de dev et durcit le rate-limit, ce qui
+          rend les suites e2e inexécutables. Le smoke-test de l'image, lui,
+          reste TOUJOURS en "production" pour valider la vraie config de prod.
+        type: string
+        default: test
       seed-command:
         description: >-
           Commande de seed jouée après les migrations (données exigées par les
@@ -159,11 +167,11 @@ jobs:
             echo "DB_PASSWORD=ci"
             echo "DB_SYNC=false"
             echo "REDIS_URL=redis://localhost:6379"
-            echo "NODE_ENV=production"
+            echo "NODE_ENV=${{ inputs.node-env }}"
             echo "PORT=${{ inputs.health-port }}"
-            # Valeurs FACTICES mais VALIDES : on teste le chemin de démarrage
-            # "production", qui refuse à raison les secrets courts/identiques ou
-            # un CORS en localhost. Surchargeables via l'input `app-env`.
+            # Valeurs FACTICES mais VALIDES (longues et distinctes) : elles
+            # satisfont aussi les contrôles de sécurité stricts d'une appli qui
+            # démarrerait en production. Surchargeables via l'input `app-env`.
             echo "JWT_SECRET=ci-dummy-jwt-secret-never-used-in-production-0001"
             echo "REFRESH_SECRET=ci-dummy-refresh-secret-never-used-in-prod-0002"
             echo "CORS_ORIGIN=https://ci.invalid"
