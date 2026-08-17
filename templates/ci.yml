@@ -1,4 +1,4 @@
-# CI — checks sur chaque PR et push sur main (ne pousse PAS d'image).
+# CI — checks sur chaque Pull Request (ne pousse PAS d'image).
 # À copier dans le projet : .github/workflows/ci.yml
 #
 # Toute la logique vit dans le repo devops ; ce fichier ne fait que l'appeler.
@@ -12,9 +12,3 @@ on:
 jobs:
   ci:
     uses: danylog-sas/devops/.github/workflows/reusable-ci.yml@v1
-    with:
-      # Secrets FACTICES juste pour permettre le boot de l'API en CI.
-      # (jamais de vrais secrets ici — la CI n'en a pas besoin)
-      app-env: |
-        JWT_SECRET=ci-not-a-real-secret
-        REFRESH_SECRET=ci-not-a-real-secret

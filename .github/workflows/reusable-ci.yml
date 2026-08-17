@@ -149,6 +149,13 @@ jobs:
             echo "REDIS_URL=redis://localhost:6379"
             echo "NODE_ENV=production"
             echo "PORT=${{ inputs.health-port }}"
+            # Valeurs FACTICES mais VALIDES : on teste le chemin de démarrage
+            # "production", qui refuse à raison les secrets courts/identiques ou
+            # un CORS en localhost. Surchargeables via l'input `app-env`.
+            echo "JWT_SECRET=ci-dummy-jwt-secret-never-used-in-production-0001"
+            echo "REFRESH_SECRET=ci-dummy-refresh-secret-never-used-in-prod-0002"
+            echo "CORS_ORIGIN=https://ci.invalid"
+            echo "APP_URL=https://ci.invalid"
             printf '%s\n' "$APP_ENV"
           } >> "$GITHUB_ENV"
 
@@ -303,6 +310,13 @@ jobs:
             echo "REDIS_URL=redis://localhost:6379"
             echo "NODE_ENV=production"
             echo "PORT=${{ inputs.health-port }}"
+            # Valeurs FACTICES mais VALIDES : on teste le chemin de démarrage
+            # "production", qui refuse à raison les secrets courts/identiques ou
+            # un CORS en localhost. Surchargeables via l'input `app-env`.
+            echo "JWT_SECRET=ci-dummy-jwt-secret-never-used-in-production-0001"
+            echo "REFRESH_SECRET=ci-dummy-refresh-secret-never-used-in-prod-0002"
+            echo "CORS_ORIGIN=https://ci.invalid"
+            echo "APP_URL=https://ci.invalid"
             printf '%s\n' "$APP_ENV"
           } > ci-app.env
           docker run -d --name api_smoke --network host --env-file ci-app.env ci-local/api:test

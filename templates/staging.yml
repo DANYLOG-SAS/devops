@@ -19,9 +19,6 @@ jobs:
     with:
       push-images: true
       image-tag: ${{ github.sha }}
-      app-env: |
-        JWT_SECRET=ci-not-a-real-secret
-        REFRESH_SECRET=ci-not-a-real-secret
 
   deploy:
     needs: build

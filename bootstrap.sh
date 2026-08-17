@@ -64,12 +64,13 @@ copy_tpl() {
   echo "  + écrit                   $dest"
 }
 
-app_env_block() {
-  cat <<'YAML'
-      app-env: |
-        JWT_SECRET=ci-not-a-real-secret
-        REFRESH_SECRET=ci-not-a-real-secret
-YAML
+# Options passées à reusable-ci selon le profil (vide pour webapp).
+# Les secrets factices de CI sont fournis par reusable-ci lui-même.
+ci_opts() {
+  case "$PROFILE" in
+    service)        echo "      build-frontend: false" ;;
+    static|library) echo "      run-backend: false"; echo "      run-migrations: false" ;;
+  esac
 }
 
 echo "== bootstrap ${NAME} (profil ${PROFILE}) -> ${TARGET} =="
@@ -86,14 +87,9 @@ on:
 jobs:
   ci:
     uses: ${OWNER}/devops/.github/workflows/reusable-ci.yml@${REF}
-    with:
 YAML
-  case "$PROFILE" in
-    service) echo "      build-frontend: false" ;;
-    static)  echo "      run-backend: false"; echo "      run-migrations: false" ;;
-    library) echo "      run-backend: false"; echo "      run-migrations: false" ;;
-  esac
-  app_env_block
+  opts="$(ci_opts)"
+  [ -n "${opts}" ] && { echo "    with:"; printf '%s\n' "${opts}"; }
 } | write_file "${WF}/ci.yml"
 
 # ── library : ci + publish, PAS de déploiement serveur ────────────────────────
@@ -149,7 +145,6 @@ YAML
     service) echo "      build-frontend: false"; echo "      push-web: false" ;;
     static)  echo "      run-backend: false"; echo "      run-migrations: false"; echo "      push-api: false" ;;
   esac
-  app_env_block
   cat <<YAML
   deploy-staging:
     needs: build
@@ -194,7 +189,6 @@ YAML
     service) echo "      build-frontend: false"; echo "      push-web: false" ;;
     static)  echo "      run-backend: false"; echo "      run-migrations: false"; echo "      push-api: false" ;;
   esac
-  app_env_block
   cat <<YAML
   deploy:
     needs: build
