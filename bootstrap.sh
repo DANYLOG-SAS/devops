@@ -76,6 +76,22 @@ ci_opts() {
 echo "== bootstrap ${NAME} (profil ${PROFILE}) -> ${TARGET} =="
 echo "   owner=${OWNER} ref=${REF} deploy=${DEPLOY_PATH}"
 
+# ── mobile : Expo/EAS — traité AVANT ci.yml. Le ci.yml générique ne s'applique
+# pas à une app Expo, et dans un dépôt mixte (backend + mobile) il appartient au
+# backend : ce profil ne doit donc ni le générer ni y toucher.
+if [ "$PROFILE" = "mobile" ]; then
+  copy_tpl "mobile-ci.yml"      "${WF}/mobile-ci.yml"
+  copy_tpl "mobile-release.yml" "${WF}/mobile-release.yml"
+  cat <<EOF
+
+== terminé (mobile) ==
+  Vérifications à chaque modification de mobile/ (expo-doctor + bundle).
+  Livraison :  git tag mobile-v1.0.0 && git push origin mobile-v1.0.0
+  Secret requis : EXPO_TOKEN (voir devops/docs/secrets.md).
+EOF
+  exit 0
+fi
+
 # ── ci.yml (toujours) ─────────────────────────────────────────────────────────
 # NB : heredoc NON quoté (on veut ${OWNER}/${REF}) -> aucun backtick dans ce
 # bloc, bash les interpréterait comme des substitutions de commande.
@@ -107,21 +123,6 @@ YAML
 ' "${opts}"
   fi
 } | write_file "${WF}/ci.yml"
-
-# ── mobile : Expo/EAS — pas de serveur, livraison par tag mobile-v* ───────────
-if [ "$PROFILE" = "mobile" ]; then
-  rm -f "${WF}/ci.yml"   # le ci.yml générique ne s'applique pas à une app Expo
-  copy_tpl "mobile-ci.yml"      "${WF}/mobile-ci.yml"
-  copy_tpl "mobile-release.yml" "${WF}/mobile-release.yml"
-  cat <<EOF
-
-== terminé (mobile) ==
-  Vérifications à chaque modification de mobile/ (expo-doctor + bundle).
-  Livraison :  git tag mobile-v1.0.0 && git push origin mobile-v1.0.0
-  Secret requis : EXPO_TOKEN (voir devops/docs/secrets.md).
-EOF
-  exit 0
-fi
 
 # ── library : ci + publish, PAS de déploiement serveur ────────────────────────
 if [ "$PROFILE" = "library" ]; then
