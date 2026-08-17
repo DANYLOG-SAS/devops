@@ -214,13 +214,15 @@ jobs:
           mapfile -t CMDS <<< "$TEST_COMMANDS"
           for cmd in "${CMDS[@]}"; do
             [ -z "${cmd//[[:space:]]/}" ] && continue
-            echo "::group::$cmd"
+            echo "───────────────────────────────────────────"
+            echo "▶ $cmd"
+            echo "───────────────────────────────────────────"
+            # Sortie NON repliée : en cas d'échec, le détail doit être lisible
+            # directement dans le log, sans avoir à déplier un groupe.
             if ! eval "$cmd"; then
-              echo "::endgroup::"
-              echo "::error::Tests en échec : $cmd" >&2
+              echo "::error::Tests en échec : $cmd (voir la sortie ci-dessus)" >&2
               exit 1
             fi
-            echo "::endgroup::"
           done
 
       # Les logs de l'API expliquent la plupart des échecs de boot ou de tests.
