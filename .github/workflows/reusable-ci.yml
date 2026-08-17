@@ -249,6 +249,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Requis pour builder avec buildx (driver docker-container) : sans lui,
+      # le driver docker par défaut ne gère ni le cache distant ni certaines
+      # options de build.
+      - name: Configurer Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Se connecter à GHCR
         uses: docker/login-action@v3
         with:
@@ -292,8 +298,6 @@ jobs:
           file: ${{ inputs.api-dockerfile }}
           load: true
           tags: ci-local/api:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
       - name: SMOKE TEST — migrations embarquées + boot dans l'image réelle
         if: ${{ inputs.push-api }}
@@ -354,5 +358,3 @@ jobs:
           push: true
           tags: ${{ steps.meta_web.outputs.tags }}
           labels: ${{ steps.meta_web.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
