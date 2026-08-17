@@ -1,15 +1,18 @@
 # reusable-ci.yml — chaîne d'intégration réutilisable (workflow_call).
 #
-# Ce que ce workflow GARANTIT avant qu'une image n'atteigne un serveur :
-#   1. lint
-#   2. LES MIGRATIONS PASSENT DEPUIS ZÉRO sur une base Postgres jetable
-#      (c'est exactement la régression qui a cassé la prod danschool :
-#       migrations non embarquées / incompatibles)
-#   3. l'API démarre et répond sur son endpoint /health
-#   4. le frontend se build
-#   5. (si push-images) build + smoke-test de l'IMAGE réelle (re-migration
-#      dans le conteneur = attrape « dossier migrations/ absent de l'image »),
-#      puis push sur GHCR taggé version + sha + latest.
+# Ce que ce workflow GARANTIT avant qu'une image n'atteigne un serveur, en
+# STAGES distincts (un job = un stage, lisible et relançable séparément) :
+#
+#   backend  : lint + LES MIGRATIONS PASSENT DEPUIS ZÉRO sur une base Postgres
+#              jetable (c'est exactement la régression qui a cassé la prod
+#              danschool : migrations non embarquées / incompatibles) + l'API
+#              démarre et répond sur /health.
+#   tests    : seed + API démarrée + suites automatisées (e2e…). Un échec ici
+#              bloque la construction des images, donc le déploiement.
+#   frontend : le frontend se build.
+#   images   : (si push-images) build + smoke-test de l'IMAGE réelle — la
+#              re-migration dans le conteneur attrape « dossier migrations/
+#              absent de l'image » — puis push sur GHCR (version + sha + latest).
 #
 # Tout est paramétré ; les valeurs par défaut correspondent à danschool.
 
@@ -189,6 +192,103 @@ jobs:
         working-directory: ${{ inputs.backend-path }}
         run: ${{ inputs.migrate-command }}
 
+      # L'API est lancée en arrière-plan et LAISSÉE EN VIE : les tests des étapes
+      # suivantes tapent dessus. Elle est arrêtée par l'étape finale (always()).
+      - name: Démarrer l'API et vérifier /health
+        working-directory: ${{ inputs.backend-path }}
+        run: |
+          nohup ${{ inputs.start-command }} > /tmp/api.log 2>&1 &
+          echo $! > /tmp/api.pid
+          echo "API démarrée (PID=$(cat /tmp/api.pid))"
+          url="http://localhost:${{ inputs.health-port }}${{ inputs.health-path }}"
+          for i in $(seq 1 30); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "$url" || echo 000)"
+            case "$code" in
+              200|400|401) echo "API up — HTTP $code"; exit 0 ;;
+            esac
+            echo "attente API... (HTTP $code) [$i/30]"; sleep 3
+          done
+          echo "::error::L'API n'a pas démarré ou /health ne répond pas" >&2
+          exit 1
+
+      # Les logs de l'API expliquent la plupart des échecs de boot ou de tests.
+      - name: Logs de l'API
+        if: ${{ always() }}
+        run: |
+          echo "── /tmp/api.log ──"
+          tail -n 200 /tmp/api.log 2>/dev/null || echo "(aucun log)"
+          [ -f /tmp/api.pid ] && kill "$(cat /tmp/api.pid)" 2>/dev/null || true
+          exit 0
+
+  # ---------------------------------------------------------------------------
+  # 2. Tests automatisés (stage distinct) : seed + API démarrée + suites
+  # ---------------------------------------------------------------------------
+  tests:
+    # Étape distincte du build : lint/migrations/boot sont déjà validés par `backend`.
+    needs: backend
+    if: ${{ inputs.run-backend && inputs.test-commands != '' }}
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: ${{ inputs.postgres-image }}
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node ${{ inputs.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.backend-path }}/package-lock.json
+
+      - name: Installer les dépendances (npm ci)
+        working-directory: ${{ inputs.backend-path }}
+        run: npm ci
+
+      - name: Préparer l'environnement de CI
+        env:
+          APP_ENV: ${{ inputs.app-env }}
+        run: |
+          {
+            echo "DB_HOST=localhost"
+            echo "DB_PORT=5432"
+            echo "DB_NAME=ci_test"
+            echo "DB_USER=ci"
+            echo "DB_PASSWORD=ci"
+            echo "DB_SYNC=false"
+            echo "REDIS_URL=redis://localhost:6379"
+            echo "NODE_ENV=${{ inputs.node-env }}"
+            echo "PORT=${{ inputs.health-port }}"
+            # Valeurs FACTICES mais VALIDES (longues et distinctes) : elles
+            # satisfont aussi les contrôles de sécurité stricts d'une appli qui
+            # démarrerait en production. Surchargeables via l'input `app-env`.
+            echo "JWT_SECRET=ci-dummy-jwt-secret-never-used-in-production-0001"
+            echo "REFRESH_SECRET=ci-dummy-refresh-secret-never-used-in-prod-0002"
+            echo "CORS_ORIGIN=https://ci.invalid"
+            echo "APP_URL=https://ci.invalid"
+            printf '%s\n' "$APP_ENV"
+          } >> "$GITHUB_ENV"
+
+      - name: Valider les migrations sur une base VIERGE
+        if: ${{ inputs.run-migrations }}
+        working-directory: ${{ inputs.backend-path }}
+        run: ${{ inputs.migrate-command }}
+
       - name: Seed des données de test
         if: ${{ inputs.seed-command != '' }}
         working-directory: ${{ inputs.backend-path }}
@@ -243,7 +343,7 @@ jobs:
           exit 0
 
   # ---------------------------------------------------------------------------
-  # 2. Frontend : build
+  # 3. Frontend : build
   # ---------------------------------------------------------------------------
   frontend:
     if: ${{ inputs.build-frontend }}
@@ -264,10 +364,10 @@ jobs:
         run: ${{ inputs.frontend-build-command }}
 
   # ---------------------------------------------------------------------------
-  # 3. Images : build + smoke-test de l'image réelle + push GHCR
+  # 4. Images : build + smoke-test de l'image réelle + push GHCR
   # ---------------------------------------------------------------------------
   images:
-    needs: [backend, frontend]
+    needs: [backend, tests, frontend]
     # Ne construit/pousse que si demandé, et seulement si les jobs amont n'ont pas
     # échoué (un job volontairement désactivé = skipped, ce qui n'est pas un échec).
     if: ${{ inputs.push-images && !cancelled() && !failure() }}
