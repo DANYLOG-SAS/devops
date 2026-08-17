@@ -1,24 +1,46 @@
-# MOBILE RELEASE — build EAS déclenché par un tag `mobile-v*`.
+# MOBILE RELEASE — build EAS (+ publication) sur tag `mobile-v*` ou à la demande.
 # À copier dans le projet : .github/workflows/mobile-release.yml
 #
-# Le préfixe `mobile-v` rend les livraisons mobiles INDÉPENDANTES des releases
-# serveur (`v*`) : on peut publier l'app sans redéployer l'API, et inversement.
+# Deux déclencheurs :
+#   • tag `mobile-v*`   -> livraison officielle, tracée par le tag
+#       git tag mobile-v1.0.0 -m "première version Android"
+#       git push origin mobile-v1.0.0
+#   • workflow_dispatch -> build à la demande depuis l'onglet Actions
+#       (pratique pour produire un APK de test sans créer de tag)
 #
-#   git tag mobile-v1.0.0 -m "première version Android"
-#   git push origin mobile-v1.0.0
+# Le préfixe `mobile-v` rend les livraisons mobiles INDÉPENDANTES des releases
+# serveur (`v*`) : on publie l'app sans redéployer l'API, et inversement.
 name: Mobile Release
 
 on:
   push:
     tags: ['mobile-v*']
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Plateforme à construire
+        type: choice
+        options: [android, ios, all]
+        default: android
+      profile:
+        description: Profil eas.json (preview = APK de test, production = app-bundle)
+        type: choice
+        options: [production, preview]
+        default: preview
+      submit:
+        description: Publier sur les stores après le build
+        type: boolean
+        default: false
 
 jobs:
   build:
     uses: danylog-sas/devops/.github/workflows/reusable-mobile.yml@v1
     with:
       eas-build: true
-      eas-platform: android          # android | ios | all
-      eas-profile: production        # profil défini dans mobile/eas.json
-      # Passer à true quand les fiches Play Store / App Store sont créées.
-      eas-submit: false
+      # Sur tag : toujours production. À la demande : ce que tu choisis.
+      eas-platform: ${{ inputs.platform || 'android' }}
+      eas-profile: ${{ github.event_name == 'push' && 'production' || inputs.profile }}
+      # La publication automatique n'a lieu que sur un tag, et seulement si tu
+      # actives ce drapeau une fois tes fiches stores prêtes (voir docs/mobile.md).
+      eas-submit: ${{ github.event_name == 'push' && false || inputs.submit }}
     secrets: inherit

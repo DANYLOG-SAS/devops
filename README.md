@@ -45,7 +45,7 @@ actions/setup-app/       composite : setup Node + cache + npm ci
 scripts/                 exécutés sur le VPS (deploy, rollback, backup-db, healthcheck, _lib)
 templates/               ce qu'un projet copie (callers, compose GHCR, .env.example)
 profiles/                webapp · service · static · library · mobile
-docs/                    branching · cicd-pipeline · deployment · rollback · secrets
+docs/                    branching · cicd-pipeline · deployment · rollback · secrets · mobile
 bootstrap.sh             onboarder un projet : bash bootstrap.sh <nom> <profil>
 ```
 
@@ -103,4 +103,5 @@ Ce repo est tagué (`v1`, `v2`, …) ; les projets épinglent une version stable
 | [docs/branching-strategy.md](docs/branching-strategy.md) | branches, releases, hotfix, rollback |
 | [docs/deployment.md](docs/deployment.md)           | mise en place VPS, premier déploiement, staging |
 | [docs/rollback.md](docs/rollback.md)               | rollback auto & manuel, restauration DB |
-| [docs/secrets.md](docs/secrets.md)                 | liste exacte des secrets d'org à créer |
+| [docs/secrets.md](docs/secrets.md)                 | liste exacte des secrets à créer |
+| [docs/mobile.md](docs/mobile.md)                   | livraison Expo/EAS : build, signature, publication stores |
