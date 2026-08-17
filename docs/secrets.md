@@ -7,9 +7,17 @@
 
 ## Où les créer
 
-Paramétrés **une fois** au niveau **organisation**, ils sont hérités par tous les
-repos via `secrets: inherit`. Restreins leur visibilité aux repos concernés si
-besoin (« Selected repositories »).
+⚠️ **Plan GitHub Free : les secrets d'ORGANISATION ne sont pas utilisables par
+les repos PRIVÉS.** Le picker « Selected repositories » n'affichera pas tes repos
+privés, et l'option « Private repositories » est grisée. Deux cas :
+
+| Situation | Où créer les secrets |
+|---|---|
+| Org **Free** + repos privés (cas actuel) | **Secrets de repo** : `https://github.com/<org>/<projet>/settings/secrets/actions` → *New repository secret*. À refaire pour chaque projet (~2 min). |
+| Org **Team/Enterprise** | **Secrets d'organisation**, créés **une fois** et partagés. |
+
+Dans les deux cas, **rien à changer dans les workflows** : `secrets: inherit`
+transmet indifféremment les secrets de repo et ceux d'organisation.
 
 ## Liste EXACTE à créer
 
