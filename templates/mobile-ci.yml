@@ -1,0 +1,18 @@
+# MOBILE CI — vérifications à chaque modification de l'app.
+# À copier dans le projet : .github/workflows/mobile-ci.yml
+#
+# Ne consomme AUCUN crédit de build EAS : on vérifie seulement que l'app se
+# bundle et que ses dépendances sont cohérentes. Le filtre `paths` évite de
+# lancer ces contrôles quand seul le backend change.
+name: Mobile CI
+
+on:
+  push:
+    paths: ['mobile/**', '.github/workflows/mobile-ci.yml']
+  pull_request:
+    paths: ['mobile/**']
+
+jobs:
+  checks:
+    uses: danylog-sas/devops/.github/workflows/reusable-mobile.yml@v1
+    secrets: inherit

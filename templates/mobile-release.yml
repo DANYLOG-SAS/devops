@@ -1,0 +1,24 @@
+# MOBILE RELEASE — build EAS déclenché par un tag `mobile-v*`.
+# À copier dans le projet : .github/workflows/mobile-release.yml
+#
+# Le préfixe `mobile-v` rend les livraisons mobiles INDÉPENDANTES des releases
+# serveur (`v*`) : on peut publier l'app sans redéployer l'API, et inversement.
+#
+#   git tag mobile-v1.0.0 -m "première version Android"
+#   git push origin mobile-v1.0.0
+name: Mobile Release
+
+on:
+  push:
+    tags: ['mobile-v*']
+
+jobs:
+  build:
+    uses: danylog-sas/devops/.github/workflows/reusable-mobile.yml@v1
+    with:
+      eas-build: true
+      eas-platform: android          # android | ios | all
+      eas-profile: production        # profil défini dans mobile/eas.json
+      # Passer à true quand les fiches Play Store / App Store sont créées.
+      eas-submit: false
+    secrets: inherit

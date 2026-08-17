@@ -1,0 +1,156 @@
+# reusable-mobile.yml — chaîne réutilisable pour applications Expo / React Native.
+#
+# Une app mobile ne se déploie pas sur un serveur : elle se compile en binaire
+# (.aab / .ipa) puis se publie sur les stores. La chaîne est donc différente de
+# celle d'une webapp, mais la philosophie reste identique : on VÉRIFIE avant de
+# livrer, et la livraison est déclenchée par un tag délibéré.
+#
+#   checks : le bundle JS est réellement produit (`expo export`) -> attrape
+#            imports cassés, erreurs de syntaxe et modules manquants, sans
+#            dépendre d'EAS ni consommer de crédit de build.
+#   build  : (sur tag) EAS Build, puis soumission optionnelle aux stores.
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        type: string
+        default: "20"
+      mobile-path:
+        description: Dossier de l'app Expo
+        type: string
+        default: mobile
+      run-doctor:
+        description: Lancer `expo-doctor` (diagnostic de compatibilité des dépendances)
+        type: boolean
+        default: true
+      doctor-blocking:
+        description: >-
+          Faire échouer le job si expo-doctor signale quelque chose. false par
+          défaut : il remonte surtout des écarts de version de patch, utiles à
+          connaître mais qui ne doivent pas bloquer une livraison.
+        type: boolean
+        default: false
+      run-export:
+        description: Vérifier que l'app se bundle (`expo export`)
+        type: boolean
+        default: true
+      export-platform:
+        description: Plateforme du bundle de vérification (android | ios | all)
+        type: string
+        default: android
+      app-env:
+        description: Variables d'environnement de CI (multi-lignes KEY=VALUE)
+        type: string
+        default: ""
+      eas-build:
+        description: Déclencher un build EAS (à réserver aux tags de version)
+        type: boolean
+        default: false
+      eas-platform:
+        description: android | ios | all
+        type: string
+        default: android
+      eas-profile:
+        description: Profil défini dans eas.json (development | preview | production)
+        type: string
+        default: production
+      eas-submit:
+        description: Soumettre automatiquement aux stores après un build réussi
+        type: boolean
+        default: false
+      eas-wait:
+        description: >-
+          Attendre la fin du build EAS. true = un build en échec fait échouer le
+          workflow (recommandé). false = on déclenche et on rend la main.
+        type: boolean
+        default: true
+    secrets:
+      EXPO_TOKEN:
+        description: Jeton d'accès Expo (requis uniquement si eas-build)
+        required: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Vérifications : diagnostic + le bundle se produit réellement
+  # ---------------------------------------------------------------------------
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node ${{ inputs.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.mobile-path }}/package-lock.json
+
+      - name: Installer les dépendances (npm ci)
+        working-directory: ${{ inputs.mobile-path }}
+        run: npm ci
+
+      - name: Préparer l'environnement de CI
+        if: ${{ inputs.app-env != '' }}
+        env:
+          APP_ENV: ${{ inputs.app-env }}
+        run: printf '%s\n' "$APP_ENV" >> "$GITHUB_ENV"
+
+      - name: Diagnostic Expo (expo-doctor)
+        if: ${{ inputs.run-doctor }}
+        working-directory: ${{ inputs.mobile-path }}
+        continue-on-error: ${{ !inputs.doctor-blocking }}
+        run: npx --yes expo-doctor
+
+      - name: Vérifier que l'app se bundle (expo export)
+        if: ${{ inputs.run-export }}
+        working-directory: ${{ inputs.mobile-path }}
+        run: npx --yes expo export --platform ${{ inputs.export-platform }} --output-dir /tmp/expo-export
+
+  # ---------------------------------------------------------------------------
+  # 2. Build EAS (déclenché par un tag) + soumission optionnelle aux stores
+  # ---------------------------------------------------------------------------
+  build:
+    needs: checks
+    if: ${{ inputs.eas-build }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node ${{ inputs.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.mobile-path }}/package-lock.json
+
+      - name: Vérifier la présence du jeton Expo
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::Secret EXPO_TOKEN manquant : impossible de lancer un build EAS." >&2
+            exit 1
+          fi
+
+      - name: Installer EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Installer les dépendances (npm ci)
+        working-directory: ${{ inputs.mobile-path }}
+        run: npm ci
+
+      - name: EAS Build (${{ inputs.eas-platform }} / ${{ inputs.eas-profile }})
+        working-directory: ${{ inputs.mobile-path }}
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          ARGS="--platform ${{ inputs.eas-platform }} --profile ${{ inputs.eas-profile }} --non-interactive"
+          [ "${{ inputs.eas-wait }}" = "true" ] || ARGS="$ARGS --no-wait"
+          [ "${{ inputs.eas-submit }}" = "true" ] && ARGS="$ARGS --auto-submit"
+          echo "eas build $ARGS"
+          # shellcheck disable=SC2086
+          eas build $ARGS

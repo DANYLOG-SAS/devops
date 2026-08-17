@@ -2,7 +2,7 @@
 # bootstrap.sh — brancher un projet sur la chaîne CI/CD centrale en ~5 min.
 #
 # Usage : bash bootstrap.sh <nom-projet> <profil> [repertoire-cible]
-#   profils : webapp | service | static | library
+#   profils : webapp | service | static | library | mobile
 #   repertoire-cible : défaut = . (le projet courant)
 #
 # Génère les callers .github/workflows/ (≈10 lignes chacun), les compose GHCR,
@@ -30,8 +30,8 @@ PROFILE="$2"
 TARGET="${3:-.}"
 
 case "$PROFILE" in
-  webapp|service|static|library) ;;
-  *) die "profil inconnu '$PROFILE' (attendu: webapp | service | static | library)" ;;
+  webapp|service|static|library|mobile) ;;
+  *) die "profil inconnu '$PROFILE' (attendu: webapp | service | static | library | mobile)" ;;
 esac
 [ -d "$TEMPLATES" ] || die "dossier templates/ introuvable (${TEMPLATES})"
 
@@ -77,13 +77,15 @@ echo "== bootstrap ${NAME} (profil ${PROFILE}) -> ${TARGET} =="
 echo "   owner=${OWNER} ref=${REF} deploy=${DEPLOY_PATH}"
 
 # ── ci.yml (toujours) ─────────────────────────────────────────────────────────
+# NB : heredoc NON quoté (on veut ${OWNER}/${REF}) -> aucun backtick dans ce
+# bloc, bash les interpréterait comme des substitutions de commande.
 {
   cat <<YAML
 # CI — checks à chaque modification. Généré par devops/bootstrap.sh (profil ${PROFILE}).
-# Tout push sur une branche de travail + toute PR. `main` est exclu car
+# Tout push sur une branche de travail + toute PR. La branche main est exclue :
 # staging.yml y rejoue déjà la CI avant de déployer (pas de double exécution).
 #
-# Pour activer les tests automatisés, ajouter sous `with:` :
+# Pour activer les tests automatisés, ajouter sous "with:" :
 #   seed-command: npm run seed
 #   test-commands: |
 #     npm run test:e2e
@@ -96,9 +98,30 @@ jobs:
   ci:
     uses: ${OWNER}/devops/.github/workflows/reusable-ci.yml@${REF}
 YAML
+  # `if` plutôt que `[ ... ] && { ... }` : ce dernier renvoie 1 quand la
+  # condition est fausse, ce qui tuait le script sous `set -e` + `pipefail`.
   opts="$(ci_opts)"
-  [ -n "${opts}" ] && { echo "    with:"; printf '%s\n' "${opts}"; }
+  if [ -n "${opts}" ]; then
+    echo "    with:"
+    printf '%s
+' "${opts}"
+  fi
 } | write_file "${WF}/ci.yml"
+
+# ── mobile : Expo/EAS — pas de serveur, livraison par tag mobile-v* ───────────
+if [ "$PROFILE" = "mobile" ]; then
+  rm -f "${WF}/ci.yml"   # le ci.yml générique ne s'applique pas à une app Expo
+  copy_tpl "mobile-ci.yml"      "${WF}/mobile-ci.yml"
+  copy_tpl "mobile-release.yml" "${WF}/mobile-release.yml"
+  cat <<EOF
+
+== terminé (mobile) ==
+  Vérifications à chaque modification de mobile/ (expo-doctor + bundle).
+  Livraison :  git tag mobile-v1.0.0 && git push origin mobile-v1.0.0
+  Secret requis : EXPO_TOKEN (voir devops/docs/secrets.md).
+EOF
+  exit 0
+fi
 
 # ── library : ci + publish, PAS de déploiement serveur ────────────────────────
 if [ "$PROFILE" = "library" ]; then

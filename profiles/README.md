@@ -16,6 +16,7 @@ Tous les profils partagent la même logique centrale (`reusable-ci`,
 | `service` | API seule (+ DB)           | lint + migrations + boot/health      | `api`         | staging → prod (VPS) |
 | `static`  | SPA / vitrine (front seul) | build front                          | `web`         | staging → prod (VPS) |
 | `library` | paquet npm/pip             | lint + build + test                  | —             | **aucun** — `npm publish` sur tag |
+| `mobile`  | app Expo / React Native    | `expo-doctor` + bundle (`expo export`) | —           | **aucun serveur** — EAS Build sur tag `mobile-v*` |
 
 ## Détail
 
@@ -45,6 +46,28 @@ l'API (`HEALTH_URL` dans `.env`).
 Pas de compose, pas de scripts VPS, pas de déploiement. Le CI lint/build/teste ;
 `publish.yml` publie le paquet sur un tag `v*` (exemple npm fourni — adapter
 pour pip/PyPI). Nécessite le secret `NPM_TOKEN` (et non les secrets VPS).
+
+### `mobile` — application Expo / React Native
+Une app mobile ne se déploie pas sur un serveur : elle se compile en binaire puis
+se publie sur les stores. Le profil suit donc la même philosophie que les autres
+(vérifier avant de livrer, livrer sur tag délibéré) avec des outils différents.
+
+- **À chaque modification de `mobile/`** : `expo-doctor` (cohérence des
+  dépendances) puis **`expo export`** — le bundle JS est réellement produit, ce
+  qui attrape imports cassés, erreurs de syntaxe et modules manquants.
+  **Aucun crédit de build EAS consommé.**
+- **Sur un tag `mobile-v*`** : EAS Build (Android app-bundle et/ou iOS), avec
+  soumission optionnelle aux stores (`eas-submit: true`).
+
+Le préfixe `mobile-v` rend les livraisons mobiles indépendantes des releases
+serveur (`v*`) : on publie l'app sans redéployer l'API, et inversement.
+
+> `expo-doctor` est **non bloquant par défaut** : il signale surtout des écarts
+> de version de patch, utiles à connaître mais qui ne doivent pas empêcher une
+> livraison. Passer `doctor-blocking: true` pour durcir.
+
+Généré : `mobile-ci.yml`, `mobile-release.yml`. Secret requis pour builder :
+`EXPO_TOKEN` (voir [secrets.md](../docs/secrets.md)).
 
 ## Changer de profil plus tard
 Les profils ne sont qu'un point de départ : on peut à tout moment éditer les

@@ -34,6 +34,18 @@ transmet indifféremment les secrets de repo et ceux d'organisation.
 Pour un profil `library` : pas de secrets VPS, mais un `NPM_TOKEN`
 (`Automation` token npm) pour `npm publish`.
 
+Pour un profil `mobile` : pas de secrets VPS non plus, mais un **`EXPO_TOKEN`**
+— uniquement nécessaire pour lancer des builds EAS (les vérifications
+`expo-doctor` / `expo export` n'en demandent aucun).
+
+| Secret | Rôle | Où l'obtenir |
+|---|---|---|
+| `EXPO_TOKEN` | authentifier EAS Build / EAS Submit | [expo.dev](https://expo.dev) → *Account settings* → **Access tokens** → *Create token* |
+
+La publication sur les stores (`eas-submit: true`) exige en plus des
+identifiants côté Expo : compte Apple Developer et/ou clé de service Google
+Play, configurés **dans EAS** (`eas credentials`), jamais dans GitHub.
+
 ## Détails
 
 ### Clé de déploiement (`SSH_KEY` / `SSH_HOST` / `SSH_USER` / `SSH_PORT`)

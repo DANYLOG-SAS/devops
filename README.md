@@ -40,10 +40,11 @@ testée**, taguée par version.
   reusable-ci.yml        lint + migrations-sur-DB-jetable + boot/health + build + push GHCR
   reusable-deploy.yml    SSH → dépose scripts/compose/.env → deploy.sh
   reusable-rollback.yml  SSH → rollback.sh <tag>
+  reusable-mobile.yml    Expo/React Native : expo-doctor + bundle + EAS Build
 actions/setup-app/       composite : setup Node + cache + npm ci
 scripts/                 exécutés sur le VPS (deploy, rollback, backup-db, healthcheck, _lib)
 templates/               ce qu'un projet copie (callers, compose GHCR, .env.example)
-profiles/                webapp · service · static · library
+profiles/                webapp · service · static · library · mobile
 docs/                    branching · cicd-pipeline · deployment · rollback · secrets
 bootstrap.sh             onboarder un projet : bash bootstrap.sh <nom> <profil>
 ```
