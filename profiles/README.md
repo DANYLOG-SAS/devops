@@ -69,6 +69,67 @@ serveur (`v*`) : on publie l'app sans redéployer l'API, et inversement.
 Généré : `mobile-ci.yml`, `mobile-release.yml`. Secret requis pour builder :
 `EXPO_TOKEN` (voir [secrets.md](../docs/secrets.md)).
 
+## Un serveur en Python
+
+Les profils décrivent la FORME d'un projet ; `backend-runtime` décrit le
+LANGAGE de son serveur. Les deux se combinent : un `webapp` peut avoir un
+serveur Node (danschool) ou Python (metrex-pro).
+
+```yaml
+with:
+  backend-runtime: python      # défaut : node
+  python-version: "3.13"       # défaut
+  backend-path: .              # là où vit requirements.txt
+  backend-install-command: ""  # défaut : pip install -r requirements.txt
+```
+
+Seules les étapes d'INSTALLATION changent. Tout le reste était déjà
+paramétré et le demeure : `migrate-command`, `start-command`, `health-path`,
+`test-commands`, `app-env`. Le frontend reste Node dans les deux cas — une
+interface l'est toujours.
+
+### Ce qui n'est PAS posé en Python
+
+Le chemin Node écrit `NODE_ENV`, `JWT_SECRET`, `REFRESH_SECRET`,
+`CORS_ORIGIN` et `APP_URL` dans l'environnement de CI : ce sont les noms de
+danschool. Le chemin Python n'écrit que les COORDONNÉES de la base jetable
+(`DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `REDIS_URL`,
+`PORT`). Tout ce qui est propre au projet passe par `app-env` :
+
+```yaml
+  app-env: |
+    METREX_BASE=postgresql://ci:ci@localhost:5432/ci_test
+    METREX_CLE_JETON=cle-de-controle-jamais-employee-en-production-0001
+```
+
+### Plusieurs interfaces
+
+`frontend-paths` (une par ligne) remplace `frontend-path` quand un projet en
+porte plusieurs — metrex-pro a une application de terrain et une console
+d'exploitation :
+
+```yaml
+  frontend-paths: |
+    web
+    web-admin
+```
+
+### Le cloisonnement, et pourquoi il est verbeux
+
+Sans `backend-runtime`, sans `frontend-paths`, **un appelant exécute
+exactement les mêmes étapes qu'avant ces inputs** — vérifié en comparant les
+deux versions du workflow, étape par étape. Le chemin Python et le chemin
+multi-interfaces ne sont que des étapes SUPPLÉMENTAIRES gardées par un `if:`.
+
+C'est pourquoi l'installation Node est restée `npm ci` en dur plutôt que de
+devenir une expression avec repli : `${{ x || 'npm ci' }}` rend bien
+« npm ci » quand `x` est vide, mais ce serait une expression de plus sur le
+chemin d'un projet qui déploie de la production.
+
+De même, le job `frontend` porte deux blocs presque semblables au lieu d'une
+boucle qui tournerait une fois. C'est du texte en double, et c'est le prix
+pour qu'un projet qui arrive ne puisse pas déranger un projet en ligne.
+
 ## Changer de profil plus tard
 Les profils ne sont qu'un point de départ : on peut à tout moment éditer les
 `with:` des callers `.github/workflows/` pour activer/désactiver un job

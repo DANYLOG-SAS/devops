@@ -14,20 +14,55 @@
 #              re-migration dans le conteneur attrape « dossier migrations/
 #              absent de l'image » — puis push sur GHCR (version + sha + latest).
 #
+# DEUX RUNTIMES DE SERVEUR, ET UN SEUL PAR DÉFAUT
+# ------------------------------------------------
+# `backend-runtime` vaut "node" par défaut : sans cet input, TOUT se comporte
+# exactement comme avant, à l'étape près. Le chemin "python" n'est fait que de
+# steps supplémentaires gardés par un `if:` — aucune étape existante ne change
+# de sens.
+#
+# C'est le cloisonnement qui compte ici : cette chaîne déploie danschool en
+# production, et un projet qui arrive ne doit pas pouvoir en déranger un autre.
+#
 # Tout est paramétré ; les valeurs par défaut correspondent à danschool.
 
 on:
   workflow_call:
     inputs:
+      backend-runtime:
+        description: >-
+          Runtime du serveur : "node" (défaut, comportement historique) ou
+          "python". Ne change QUE les étapes d'installation des jobs backend
+          et tests ; le frontend reste Node dans les deux cas.
+        type: string
+        default: node
       node-version:
         type: string
         default: "20"
+      python-version:
+        description: Employée seulement si backend-runtime vaut "python".
+        type: string
+        default: "3.13"
+      backend-install-command:
+        description: >-
+          Installation des dépendances du serveur, en Python UNIQUEMENT.
+          Vide = `pip install -r requirements.txt`. Le chemin Node garde
+          `npm ci` en dur : ne pas le rendre configurable, c'est garantir
+          qu'aucun projet ne peut changer ce que fait la CI d'un autre.
+        type: string
+        default: ""
       backend-path:
         type: string
         default: backend
       frontend-path:
         type: string
         default: frontend
+      frontend-paths:
+        description: >-
+          Plusieurs interfaces à construire, une par ligne (ex. "web" puis
+          "web-admin"). Vide = `frontend-path` seul, comportement historique.
+        type: string
+        default: ""
       run-lint:
         type: boolean
         default: true
@@ -147,7 +182,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ── Runtime du serveur. Un seul des deux blocs s'exécute ; sans
+      #    `backend-runtime`, c'est le bloc Node, à l'identique d'avant.
       - name: Setup Node ${{ inputs.node-version }}
+        if: ${{ inputs.backend-runtime != 'python' }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
@@ -155,10 +193,30 @@ jobs:
           cache-dependency-path: ${{ inputs.backend-path }}/package-lock.json
 
       - name: Installer les dépendances (npm ci)
+        if: ${{ inputs.backend-runtime != 'python' }}
         working-directory: ${{ inputs.backend-path }}
+        # Littéral, et non une expression avec repli : `${{ x || 'npm ci' }}`
+        # rend bien « npm ci » quand x est vide, mais ce serait tout de même
+        # une expression de plus sur le chemin de danschool. Ici la commande
+        # Node est celle d'hier, mot pour mot.
         run: npm ci
 
+      - name: Setup Python ${{ inputs.python-version }}
+        if: ${{ inputs.backend-runtime == 'python' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+
+      - name: Installer les dépendances (pip)
+        if: ${{ inputs.backend-runtime == 'python' }}
+        working-directory: ${{ inputs.backend-path }}
+        run: |
+          python -m pip install --upgrade pip
+          ${{ inputs.backend-install-command || 'pip install -r requirements.txt' }}
+
       - name: Préparer l'environnement de CI
+        if: ${{ inputs.backend-runtime != 'python' }}
         env:
           APP_ENV: ${{ inputs.app-env }}
         run: |
@@ -179,6 +237,30 @@ jobs:
             echo "REFRESH_SECRET=ci-dummy-refresh-secret-never-used-in-prod-0002"
             echo "CORS_ORIGIN=https://ci.invalid"
             echo "APP_URL=https://ci.invalid"
+            printf '%s\n' "$APP_ENV"
+          } >> "$GITHUB_ENV"
+
+      - name: Préparer l'environnement de CI (Python)
+        if: ${{ inputs.backend-runtime == 'python' }}
+        env:
+          APP_ENV: ${{ inputs.app-env }}
+        run: |
+          # Les COORDONNÉES de la base jetable, et rien d'autre. Ni NODE_ENV
+          # ni JWT_SECRET : ce sont les noms de danschool, et les poser chez
+          # un projet Python ne ferait qu'encombrer son environnement de
+          # variables qu'il n'attend pas.
+          #
+          # Tout ce qui est propre au projet passe par `app-env` — c'est là
+          # qu'un projet Python déclare son METREX_BASE, son DATABASE_URL ou
+          # ce qu'il nomme ainsi.
+          {
+            echo "DB_HOST=localhost"
+            echo "DB_PORT=5432"
+            echo "DB_NAME=ci_test"
+            echo "DB_USER=ci"
+            echo "DB_PASSWORD=ci"
+            echo "REDIS_URL=redis://localhost:6379"
+            echo "PORT=${{ inputs.health-port }}"
             printf '%s\n' "$APP_ENV"
           } >> "$GITHUB_ENV"
 
@@ -249,7 +331,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ── Runtime du serveur. Un seul des deux blocs s'exécute ; sans
+      #    `backend-runtime`, c'est le bloc Node, à l'identique d'avant.
       - name: Setup Node ${{ inputs.node-version }}
+        if: ${{ inputs.backend-runtime != 'python' }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
@@ -257,10 +342,30 @@ jobs:
           cache-dependency-path: ${{ inputs.backend-path }}/package-lock.json
 
       - name: Installer les dépendances (npm ci)
+        if: ${{ inputs.backend-runtime != 'python' }}
         working-directory: ${{ inputs.backend-path }}
+        # Littéral, et non une expression avec repli : `${{ x || 'npm ci' }}`
+        # rend bien « npm ci » quand x est vide, mais ce serait tout de même
+        # une expression de plus sur le chemin de danschool. Ici la commande
+        # Node est celle d'hier, mot pour mot.
         run: npm ci
 
+      - name: Setup Python ${{ inputs.python-version }}
+        if: ${{ inputs.backend-runtime == 'python' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+
+      - name: Installer les dépendances (pip)
+        if: ${{ inputs.backend-runtime == 'python' }}
+        working-directory: ${{ inputs.backend-path }}
+        run: |
+          python -m pip install --upgrade pip
+          ${{ inputs.backend-install-command || 'pip install -r requirements.txt' }}
+
       - name: Préparer l'environnement de CI
+        if: ${{ inputs.backend-runtime != 'python' }}
         env:
           APP_ENV: ${{ inputs.app-env }}
         run: |
@@ -281,6 +386,30 @@ jobs:
             echo "REFRESH_SECRET=ci-dummy-refresh-secret-never-used-in-prod-0002"
             echo "CORS_ORIGIN=https://ci.invalid"
             echo "APP_URL=https://ci.invalid"
+            printf '%s\n' "$APP_ENV"
+          } >> "$GITHUB_ENV"
+
+      - name: Préparer l'environnement de CI (Python)
+        if: ${{ inputs.backend-runtime == 'python' }}
+        env:
+          APP_ENV: ${{ inputs.app-env }}
+        run: |
+          # Les COORDONNÉES de la base jetable, et rien d'autre. Ni NODE_ENV
+          # ni JWT_SECRET : ce sont les noms de danschool, et les poser chez
+          # un projet Python ne ferait qu'encombrer son environnement de
+          # variables qu'il n'attend pas.
+          #
+          # Tout ce qui est propre au projet passe par `app-env` — c'est là
+          # qu'un projet Python déclare son METREX_BASE, son DATABASE_URL ou
+          # ce qu'il nomme ainsi.
+          {
+            echo "DB_HOST=localhost"
+            echo "DB_PORT=5432"
+            echo "DB_NAME=ci_test"
+            echo "DB_USER=ci"
+            echo "DB_PASSWORD=ci"
+            echo "REDIS_URL=redis://localhost:6379"
+            echo "PORT=${{ inputs.health-port }}"
             printf '%s\n' "$APP_ENV"
           } >> "$GITHUB_ENV"
 
@@ -350,18 +479,78 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # ══ UNE SEULE INTERFACE — LE CHEMIN HISTORIQUE, INTACT ══════════════
+      #
+      # Ces trois étapes sont celles d'avant, au caractère près. Un projet qui
+      # ne déclare pas `frontend-paths` emprunte exactement le même chemin
+      # qu'hier : aucune de ses exécutions ne passe par le code ajouté
+      # au-dessous.
+      #
+      # C'est plus verbeux qu'une boucle qui tournerait une fois, et c'est
+      # voulu : cette chaîne déploie de la production, et un projet qui arrive
+      # ne doit pas pouvoir en déranger un autre. Le jour où tous les projets
+      # emploieront `frontend-paths`, ce bloc disparaîtra.
       - name: Setup Node ${{ inputs.node-version }}
+        if: ${{ inputs.frontend-paths == '' }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node-version }}
           cache: npm
           cache-dependency-path: ${{ inputs.frontend-path }}/package-lock.json
       - name: Installer les dépendances (npm ci)
+        if: ${{ inputs.frontend-paths == '' }}
         working-directory: ${{ inputs.frontend-path }}
         run: npm ci
       - name: Build frontend
+        if: ${{ inputs.frontend-paths == '' }}
         working-directory: ${{ inputs.frontend-path }}
         run: ${{ inputs.frontend-build-command }}
+
+      # ══ PLUSIEURS INTERFACES ════════════════════════════════════════════
+      #
+      # Une boucle plutôt qu'une matrice : une matrice se construit depuis du
+      # JSON, ce qu'un input multi-lignes n'est pas — il aurait fallu un job
+      # de préparation dans CHAQUE exécution, y compris celles qui n'ont
+      # qu'une interface.
+      - name: Lister les interfaces
+        id: liste
+        if: ${{ inputs.frontend-paths != '' }}
+        env:
+          PLUSIEURS: ${{ inputs.frontend-paths }}
+        run: |
+          chemins="$(echo "$PLUSIEURS" | sed '/^[[:space:]]*$/d')"
+          {
+            echo "chemins<<FIN"
+            echo "$chemins"
+            echo "FIN"
+          } >> "$GITHUB_OUTPUT"
+          echo "à construire :"; echo "$chemins" | sed 's/^/  · /'
+
+      - name: Setup Node ${{ inputs.node-version }}
+        if: ${{ inputs.frontend-paths != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          # Accepte plusieurs lignes : le cache couvre toutes les interfaces.
+          cache-dependency-path: |
+            ${{ steps.liste.outputs.chemins }}/package-lock.json
+
+      - name: Installer et construire chaque interface
+        if: ${{ inputs.frontend-paths != '' }}
+        env:
+          CHEMINS: ${{ steps.liste.outputs.chemins }}
+          COMMANDE: ${{ inputs.frontend-build-command }}
+        run: |
+          # `set -e` ne suffit pas dans un `while` alimenté par un tube : le
+          # corps tourne dans un sous-shell, et un échec y passerait inaperçu.
+          # On teste donc le code de retour à la main.
+          echo "$CHEMINS" | while IFS= read -r chemin; do
+            [ -n "$chemin" ] || continue
+            echo "── $chemin"
+            ( cd "$chemin" && npm ci && eval "$COMMANDE" ) || exit 1
+          done
 
   # ---------------------------------------------------------------------------
   # 4. Images : build + smoke-test de l'image réelle + push GHCR
