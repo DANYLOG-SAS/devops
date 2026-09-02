@@ -81,16 +81,48 @@ Les `templates/` sont déjà calés sur l'infra danschool (Caddy, `postgres:15`,
 
 ## Versionner la chaîne
 
-Ce repo est tagué (`v1`, `v2`, …) ; les projets épinglent une version stable via
-`uses: <owner>/devops/.github/workflows/reusable-*.yml@v1`.
+Deux sortes de tags, et une règle qui ne se contourne pas.
 
-- Correctif/ajout rétrocompatible → on **avance le tag flottant `v1`** sur le
-  nouveau commit :
-  ```bash
-  git tag -f v1 && git push -f origin v1
-  ```
-- Changement **cassant** → nouveau tag majeur `v2` ; les projets migrent quand
-  ils veulent (ils restent sur `@v1` en attendant).
+**`vX.Y.Z` — immuable.** Posé sur un commit, il n'est jamais déplacé ni supprimé.
+C'est le point fixe : sans lui, il n'existe aucune version vers laquelle revenir.
+
+**`v1` — flottant.** Ce que les projets épinglent au quotidien. Il ne pointe
+**jamais directement sur un commit** : il ne fait que suivre un `vX.Y.Z` déjà
+posé.
+
+```bash
+# 1. la version immuable, d'abord
+git tag -a v1.2.0 -m "ce que la version apporte" && git push origin v1.2.0
+# 2. puis le tag flottant, qui la suit
+git tag -f v1 v1.2.0 && git push -f origin v1
+```
+
+Pourquoi cet ordre, et pas l'inverse : un tag flottant avancé sur un commit non
+tagué ne laisse **rien derrière lui**. Le jour où la nouvelle version pose
+problème, il n'y a aucune référence stable vers laquelle reculer.
+
+Et surtout : **on ne recule jamais `v1`.** Un dépôt qui a déjà tiré la nouvelle
+version repartirait en arrière au milieu d'un run, sans que rien ne le signale —
+c'est pire que d'avoir avancé trop tôt. En cas de problème on **avance** vers un
+`v1.x.y` correctif ; les projets qui veulent se figer épinglent un `vX.Y.Z` ou un
+SHA.
+
+**Changement cassant** → nouveau tag majeur `v2` ; les projets migrent quand ils
+veulent (ils restent sur `@v1` en attendant).
+
+### Avant d'avancer `v1`
+
+`v1` sert plusieurs dépôts à la fois. Avancer ce tag est une **mise en
+production pour tous ceux qui l'épinglent**, y compris pour les commits déjà sur
+`main` mais jamais publiés. Donc, dans l'ordre :
+
+1. recenser qui consomme la chaîne — la branche par défaut de chaque dépôt de
+   l'organisation, pas seulement celui qu'on a en tête ;
+2. vérifier que le diff depuis le `v1` courant n'enlève ni ne modifie de ligne
+   sur les chemins déjà servis (`git diff v1 HEAD -- .github/workflows/`) ;
+3. **exécuter**, pas seulement relire : déclencher la CI d'un dépôt consommateur
+   et obtenir un vert. Lire une garde `if:` et constater qu'elle est fausse pour
+   un projet donné est un raisonnement ; ce n'est pas une preuve.
 
 > `bootstrap.sh` accepte `DEVOPS_OWNER` et `DEVOPS_REF` (défaut `danylog-sas`/`v1`)
 > pour cibler un autre propriétaire ou une autre version.
