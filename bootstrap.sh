@@ -69,7 +69,7 @@ copy_tpl() {
 ci_opts() {
   case "$PROFILE" in
     service)        echo "      build-frontend: false" ;;
-    static|library) echo "      run-backend: false"; echo "      run-migrations: false" ;;
+    static)         echo "      run-backend: false"; echo "      run-migrations: false" ;;
   esac
 }
 
@@ -88,6 +88,74 @@ if [ "$PROFILE" = "mobile" ]; then
   Vérifications à chaque modification de mobile/ (expo-doctor + bundle).
   Livraison :  git tag mobile-v1.0.0 && git push origin mobile-v1.0.0
   Secret requis : EXPO_TOKEN (voir devops/docs/secrets.md).
+EOF
+  exit 0
+fi
+
+# ── library : ci (matrice de versions) + publish, AUCUN serveur ───────────────
+# Traité AVANT le ci.yml générique : une bibliothèque n'emprunte pas la chaîne
+# serveur. reusable-ci.yml neutralise son job de tests dès que run-backend est
+# faux — une bibliothèque y était donc « verte » sans qu'un seul test tourne.
+if [ "$PROFILE" = "library" ]; then
+  cat <<YAML | write_file "${WF}/ci.yml"
+# CI — checks à chaque modification. Généré par devops/bootstrap.sh (profil library).
+#
+# Contrairement aux profils serveur, main n'est PAS exclue : il n'y a pas de
+# staging.yml pour y rejouer la CI, donc l'exclure laisserait main sans contrôle.
+#
+# Une bibliothèque annonce un plancher de version à qui l'installe. C'est une
+# promesse, et elle se vérifie : toutes les versions listées sont testées.
+name: CI
+on: [push, pull_request]
+jobs:
+  ci:
+    uses: ${OWNER}/devops/.github/workflows/reusable-lib-ci.yml@${REF}
+    with:
+      # Paquet pip : décommenter ce bloc, supprimer celui de Node.
+      # runtime: python
+      # versions: '["3.10","3.12","3.14"]'
+      # install-command: pip install -r requirements-dev.txt
+      # Sans dépendance ? Prouvez-le : la suite tourne AVANT toute installation.
+      # preinstall-test-commands: |
+      #   python3 runtests.py
+      versions: '["20","22"]'
+      install-command: npm ci
+      test-commands: |
+        npm test
+YAML
+
+  cat <<YAML | write_file "${WF}/publish.yml"
+# PUBLISH — publie le paquet sur un tag v* (à adapter : npm / pip).
+name: Publish
+on:
+  push:
+    tags: ['v*']
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run build --if-present
+      - run: npm test --if-present
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: \${{ secrets.NPM_TOKEN }}
+YAML
+  cat <<EOF
+
+== terminé (library) ==
+  ci.yml      tests sur chaque version déclarée (reusable-lib-ci)
+  publish.yml publication du paquet sur tag v*
+  Aucun compose, aucun déploiement serveur.
+  À ajuster dans ci.yml : runtime, versions, install-command, test-commands.
 EOF
   exit 0
 fi
@@ -123,37 +191,6 @@ YAML
 ' "${opts}"
   fi
 } | write_file "${WF}/ci.yml"
-
-# ── library : ci + publish, PAS de déploiement serveur ────────────────────────
-if [ "$PROFILE" = "library" ]; then
-  cat <<YAML | write_file "${WF}/publish.yml"
-# PUBLISH — publie le paquet sur un tag v* (à adapter : npm / pip).
-name: Publish
-on:
-  push:
-    tags: ['v*']
-jobs:
-  publish:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          registry-url: https://registry.npmjs.org
-      - run: npm ci
-      - run: npm run build --if-present
-      - run: npm test --if-present
-      - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: \${{ secrets.NPM_TOKEN }}
-YAML
-  echo "== terminé (library) : ci.yml + publish.yml. Aucun compose/déploiement serveur. =="
-  exit 0
-fi
 
 # ── release.yml (webapp | service | static) ───────────────────────────────────
 {

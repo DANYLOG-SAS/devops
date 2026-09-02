@@ -1,0 +1,188 @@
+# reusable-lib-ci.yml — intégration continue d'une BIBLIOTHÈQUE.
+#
+# POURQUOI UN WORKFLOW À PART
+# ---------------------------
+# `reusable-ci.yml` est bâti autour d'un serveur : Postgres et Redis en
+# `services`, migrations sur base vierge, démarrage de l'API, /health. C'est sa
+# valeur, et c'est ce qui protège la production de danschool.
+#
+# Une bibliothèque n'a rien de tout ça : pas de serveur à démarrer, pas de base
+# à migrer, pas d'image à pousser. Elle ne peut donc pas emprunter cette chaîne.
+# Le profil `library` mettait `run-backend: false`, ce qui neutralisait le job
+# `backend` ET le job `tests` (gardé par le même input) : la CI d'une
+# bibliothèque ne lançait AUCUN test, et le seul job restant tentait un
+# `npm ci` dans un dossier `frontend` qui n'existe pas.
+#
+# Ce fichier est NEUF et n'ouvre pas `reusable-ci.yml` : un projet qui arrive ne
+# doit pas pouvoir déranger un projet en ligne.
+#
+# CE QU'IL GARANTIT
+# -----------------
+#   * les tests passent sur CHAQUE version déclarée du runtime, pas seulement
+#     sur la plus récente. Une bibliothèque annonce un plancher de version ;
+#     c'est une promesse faite à qui l'installe, et elle se vérifie. Les
+#     versions sont un INPUT : chaque paquet déclare les siennes ;
+#   * `fail-fast: false` : on veut savoir si l'échec touche le plancher, la
+#     version haute, ou les deux. Arrêter à la première version renseigne mal ;
+#   * la suite tourne DEUX FOIS quand le projet le demande — une fois avant
+#     toute installation, une fois après. Voir ci-dessous.
+#
+# LES DEUX PASSAGES, ET POURQUOI
+# ------------------------------
+# `preinstall-test-commands` s'exécute AVANT `install-command`, donc dans un
+# environnement où rien n'a été installé. C'est la seule façon de prouver ce
+# qu'une bibliothèque sans dépendance affirme : qu'elle fonctionne sur un poste
+# nu. Un projet qui embarque son propre lanceur de tests en repli (parce que le
+# poste client n'a ni réseau ni pip) ne teste JAMAIS ce repli si sa CI commence
+# par installer l'outil qu'il est censé remplacer — le repli est mort sans que
+# personne ne le voie.
+#
+# `test-commands` s'exécute ensuite, après installation : le chemin nominal.
+#
+# CE QU'IL NE FAIT PAS
+# --------------------
+# Aucun déploiement, aucune image, aucun secret d'infrastructure. La publication
+# du paquet vit dans le `publish.yml` du projet, sur tag.
+
+on:
+  workflow_call:
+    inputs:
+      runtime:
+        description: >-
+          "node" (défaut) ou "python". Ne change QUE l'étape de mise en place du
+          runtime ; l'installation et les tests restent des commandes fournies
+          par le projet.
+        type: string
+        default: node
+      versions:
+        description: >-
+          Versions à tester, tableau JSON en chaîne — ex. '["3.10","3.12","3.14"]'
+          ou '["20","22"]'. Toutes sont testées en parallèle. Vide = la version
+          par défaut du runtime, seule.
+        type: string
+        default: ""
+      working-directory:
+        description: Racine du paquet (là où vivent les tests). Défaut = le dépôt.
+        type: string
+        default: "."
+      preinstall-test-commands:
+        description: >-
+          Commandes jouées AVANT toute installation, une par ligne. Vide = pas de
+          passage à nu. Sert à prouver qu'un paquet sans dépendance fonctionne
+          sur un environnement vierge, et que son lanceur de tests de repli est
+          bien exercé plutôt que court-circuité par l'installation.
+        type: string
+        default: ""
+      install-command:
+        description: >-
+          Installation des dépendances. Vide = AUCUNE installation — c'est un
+          cas légitime : une bibliothèque sans dépendance externe n'a rien à
+          installer, et le dire explicitement vaut mieux qu'un `npm ci` implicite
+          qui échouerait sans `package-lock.json`.
+        type: string
+        default: ""
+      lint-command:
+        description: Vide = pas de lint.
+        type: string
+        default: ""
+      test-commands:
+        description: >-
+          Commandes de test jouées APRÈS installation, une par ligne. Un échec
+          sur n'importe laquelle arrête le job. Vide = échec immédiat : une CI
+          qui ne teste rien donne une confiance qu'elle ne mérite pas.
+        type: string
+        required: true
+      env:
+        description: Variables supplémentaires pour les tests (multi-lignes KEY=VALUE).
+        type: string
+        default: ""
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    strategy:
+      # On veut le tableau complet : savoir si seul le plancher casse, ou tout.
+      fail-fast: false
+      matrix:
+        version: ${{ fromJSON(inputs.versions != '' && inputs.versions || (inputs.runtime == 'python' && '["3.13"]' || '["20"]')) }}
+    name: tests (${{ inputs.runtime }} ${{ matrix.version }})
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Runtime. Un seul des deux blocs s'exécute.
+      - name: Setup Node ${{ matrix.version }}
+        if: ${{ inputs.runtime != 'python' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.version }}
+
+      - name: Setup Python ${{ matrix.version }}
+        if: ${{ inputs.runtime == 'python' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.version }}
+
+      - name: Variables d'environnement
+        if: ${{ inputs.env != '' }}
+        env:
+          EXTRA_ENV: ${{ inputs.env }}
+        run: printf '%s\n' "$EXTRA_ENV" >> "$GITHUB_ENV"
+
+      # ── Passage 1 : environnement NU, rien n'est installé.
+      - name: Tests sans installation
+        if: ${{ inputs.preinstall-test-commands != '' }}
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          TEST_COMMANDS: ${{ inputs.preinstall-test-commands }}
+        run: |
+          echo "Environnement vierge : aucune dépendance installée à ce stade."
+          mapfile -t CMDS <<< "$TEST_COMMANDS"
+          for cmd in "${CMDS[@]}"; do
+            [ -z "${cmd//[[:space:]]/}" ] && continue
+            echo "───────────────────────────────────────────"
+            echo "▶ (à nu) $cmd"
+            echo "───────────────────────────────────────────"
+            if ! eval "$cmd"; then
+              echo "::error::Tests à nu en échec : $cmd (voir la sortie ci-dessus)" >&2
+              exit 1
+            fi
+          done
+
+      - name: Installer les dépendances
+        if: ${{ inputs.install-command != '' }}
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.install-command }}
+
+      - name: Lint
+        if: ${{ inputs.lint-command != '' }}
+        working-directory: ${{ inputs.working-directory }}
+        run: ${{ inputs.lint-command }}
+
+      # ── Passage 2 : chemin nominal, dépendances installées.
+      #    La boucle est en double avec celle du passage 1, comme reusable-ci.yml
+      #    double ses blocs plutôt que de les factoriser : deux étapes distinctes
+      #    se relancent et se lisent séparément dans l'interface d'Actions.
+      - name: Tests
+        working-directory: ${{ inputs.working-directory }}
+        env:
+          TEST_COMMANDS: ${{ inputs.test-commands }}
+        run: |
+          mapfile -t CMDS <<< "$TEST_COMMANDS"
+          ran=0
+          for cmd in "${CMDS[@]}"; do
+            [ -z "${cmd//[[:space:]]/}" ] && continue
+            ran=1
+            echo "───────────────────────────────────────────"
+            echo "▶ $cmd"
+            echo "───────────────────────────────────────────"
+            # Sortie NON repliée : en cas d'échec, le détail doit être lisible
+            # directement dans le log, sans avoir à déplier un groupe.
+            if ! eval "$cmd"; then
+              echo "::error::Tests en échec : $cmd (voir la sortie ci-dessus)" >&2
+              exit 1
+            fi
+          done
+          if [ "$ran" -eq 0 ]; then
+            echo "::error::Aucune commande de test exécutée : 'test-commands' est vide." >&2
+            exit 1
+          fi

@@ -15,7 +15,7 @@ Tous les profils partagent la même logique centrale (`reusable-ci`,
 | `webapp`  | front + API + DB (danschool)| lint + migrations + boot/health + build front | `api` + `web` | staging → prod (VPS) |
 | `service` | API seule (+ DB)           | lint + migrations + boot/health      | `api`         | staging → prod (VPS) |
 | `static`  | SPA / vitrine (front seul) | build front                          | `web`         | staging → prod (VPS) |
-| `library` | paquet npm/pip             | lint + build + test                  | —             | **aucun** — `npm publish` sur tag |
+| `library` | paquet npm/pip             | tests sur CHAQUE version déclarée    | —             | **aucun** — publication sur tag  |
 | `mobile`  | app Expo / React Native    | `expo-doctor` + bundle (`expo export`) | —           | **aucun serveur** — EAS Build sur tag `mobile-v*` |
 
 ## Détail
@@ -43,9 +43,43 @@ l'API (`HEALTH_URL` dans `.env`).
 **À ajuster** : retirer `postgres`/`redis`/`api` du compose.
 
 ### `library` — paquet réutilisable, pas de serveur
-Pas de compose, pas de scripts VPS, pas de déploiement. Le CI lint/build/teste ;
-`publish.yml` publie le paquet sur un tag `v*` (exemple npm fourni — adapter
-pour pip/PyPI). Nécessite le secret `NPM_TOKEN` (et non les secrets VPS).
+Pas de compose, pas de scripts VPS, pas de déploiement. `publish.yml` publie le
+paquet sur un tag `v*` (exemple npm fourni — adapter pour pip/PyPI). Nécessite
+le secret `NPM_TOKEN` (et non les secrets VPS).
+
+**Ce profil n'emprunte pas `reusable-ci.yml`** mais
+[`reusable-lib-ci.yml`](../.github/workflows/reusable-lib-ci.yml). La chaîne
+serveur gardait son job de tests derrière `run-backend`, que le profil mettait à
+`false` : une bibliothèque y était **verte sans qu'un seul test tourne**, et le
+seul job restant tentait un `npm ci` dans un dossier `frontend` inexistant.
+
+Ce que la chaîne bibliothèque apporte à la place :
+
+| `with:` | Rôle |
+|---|---|
+| `runtime` | `node` (défaut) ou `python` |
+| `versions` | tableau JSON des versions testées **en parallèle**, ex. `'["3.10","3.12","3.14"]'` |
+| `working-directory` | racine du paquet (défaut : le dépôt) |
+| `preinstall-test-commands` | suite jouée **avant toute installation** |
+| `install-command` | vide = aucune installation, cas légitime |
+| `lint-command` | vide = pas de lint |
+| `test-commands` | suite jouée **après** installation (obligatoire) |
+| `env` | variables supplémentaires, `KEY=VALUE` par ligne |
+
+Deux points qui ne sont pas des détails :
+
+- **Les versions sont un input, et `fail-fast` est désactivé.** Une bibliothèque
+  annonce un plancher de version à qui l'installe ; c'est une promesse, et elle
+  se vérifie. Sur concordance, c'est le passage en 3.10 qui a attrapé un
+  backslash dans une f-string (PEP 701) rendant un module non importable — le
+  poste de développement, en 3.14, ne pouvait pas le voir.
+- **Le double passage.** Un paquet qui embarque un lanceur de tests de repli
+  (parce que le poste client n'a ni réseau ni pip) ne teste jamais ce repli si sa
+  CI commence par installer l'outil qu'il remplace. `preinstall-test-commands`
+  tourne sur un environnement nu, `test-commands` après installation.
+
+- `main` n'est **pas** exclue du déclenchement, contrairement aux profils
+  serveur : il n'y a pas de `staging.yml` pour y rejouer la CI.
 
 ### `mobile` — application Expo / React Native
 Une app mobile ne se déploie pas sur un serveur : elle se compile en binaire puis
