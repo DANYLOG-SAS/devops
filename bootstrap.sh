@@ -178,6 +178,14 @@ on:
   push:
     branches-ignore: [main]
   pull_request:
+permissions:
+  # reusable-ci.yml contient un job qui demande packages: write (push GHCR).
+  # GitHub valide les permissions AU DEMARRAGE, avant d'evaluer les
+  # conditions if: des jobs :
+  # sans ce bloc l'appel echoue en startup_failure, meme avec push-images a
+  # false et le job ignore.
+  contents: read
+  packages: write
 jobs:
   ci:
     uses: ${OWNER}/devops/.github/workflows/reusable-ci.yml@${REF}
